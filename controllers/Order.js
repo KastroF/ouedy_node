@@ -1575,164 +1575,112 @@ exports.deleteOrder = (req, res) => {
     })
 }
 
-function testCombinaisons2(objects, targetSum) {
-    function backtrack(index, currentSum, currentCombination) {
-        if (currentSum === targetSum) {
-            return currentCombination; // Retourner la combinaison actuelle si elle satisfait la condition
-        }
-        if (currentSum > targetSum || index >= objects.length) {
-            return null; // Retourner null si la somme dépasse la cible ou si tous les objets ont été examinés
-        }
-
-        let currentAmount = objects[index].amount;
-        if (objects[index].rest !== undefined && objects[index].rest > 0) {
-            currentAmount = objects[index].rest;
-        }
-
-        // Inclure l'objet actuel
-        const includeCombination = backtrack(index + 1, currentSum + currentAmount, [...currentCombination, objects[index]]);
-        if (includeCombination) {
-            return includeCombination; // Si une combinaison est trouvée en incluant l'objet actuel, la retourner
-        }
-
-        // Exclure l'objet actuel
-        return backtrack(index + 1, currentSum, currentCombination);
-    }
-
-    // Démarrer le processus de rétrogradation
-    return backtrack(0, 0, []);
-}
-
-
 function testCombinaisons(objects, targetSum) {
+    function backtrack(index, currentSum, combination) {
+      if (currentSum === targetSum) return combination;
+      if (currentSum > targetSum || index >= objects.length) return null;
   
-    function backtrack(index, currentSum, currentCombination) {
-        if (currentSum === targetSum) {
-            return currentCombination; // Retourner la combinaison actuelle si elle satisfait la condition
-        }
-        if (currentSum > targetSum || index >= objects.length) {
-            return null; // Retourner null si la somme dépasse la cible ou si tous les objets ont été examinés
-        }
-
-        let currentAmount = objects[index].amount;
-        if (objects[index].rest !== undefined && objects[index].rest < objects[index].amount) {
-            currentAmount = objects[index].rest;
-        }
-
-        // Inclure l'objet actuel
-        const includeCombination = backtrack(index + 1, currentSum + currentAmount, [...currentCombination, objects[index]]);
-        if (includeCombination) {
-            return includeCombination; // Si une combinaison est trouvée en incluant l'objet actuel, la retourner
-        }
-
-        // Exclure l'objet actuel
-        return backtrack(index + 1, currentSum, currentCombination);
+      const current = objects[index];
+      const amount = current.rest !== undefined && current.rest < current.amount ? current.rest : current.amount;
+  
+      const withCurrent = backtrack(index + 1, currentSum + amount, [...combination, current]);
+      if (withCurrent) return withCurrent;
+  
+      return backtrack(index + 1, currentSum, combination);
     }
-
-    // Démarrer le processus de rétrogradation
+  
     return backtrack(0, 0, []);
-}
-
-
-function countAmountsToTarget(orders, targetSum) {
-  let accumulatedSum = 0;
-  let result = [];
-
-  for (let i = 0; i < orders.length; i++) {
-    let currentOrder = { ...orders[i]._doc };
-    let amountToUse = currentOrder.rest !== undefined ? currentOrder.rest : currentOrder.amount;
-
-    if (accumulatedSum + amountToUse > targetSum) {
-      amountToUse = targetSum - accumulatedSum;
-      currentOrder.rest = (currentOrder.rest !== undefined ? currentOrder.rest : currentOrder.amount) - amountToUse;
-      accumulatedSum += amountToUse;
-      result.push(currentOrder);
-      break; // Nous avons atteint la somme cible
-    } else {
-      accumulatedSum += amountToUse;
-      result.push(currentOrder);
-    }
   }
-
-  // Vérifier si la somme totale accumulée est égale à la cible
-  if (accumulatedSum !== targetSum) {
-    return []; // Retourner un tableau vide si la somme n'est pas atteinte
-  }
-
-  return result;
-}
-
-function countAmountsToTarget2(orders, targetSum) {
-  let accumulatedSum = 0;
-  let result = [];
-
-  for (let i = 0; i < orders.length; i++) {
-    let currentOrder = { ...orders[i]._doc };
-    let amountToUse = currentOrder.rest !== undefined ? currentOrder.rest : currentOrder.amount;
-
-    if (accumulatedSum + amountToUse > targetSum) {
-      amountToUse = targetSum - accumulatedSum;
-      currentOrder.rest2 = (currentOrder.rest !== undefined && currentOrder.rest > 0 ? currentOrder.rest : currentOrder.amount) - amountToUse;
-      accumulatedSum += amountToUse;
-      result.push(currentOrder);
-      break; // Nous avons atteint la somme cible
-    } else {
-      accumulatedSum += amountToUse;
-      result.push(currentOrder);
-    }
-  }
-
-  // Vérifier si la somme totale accumulée est égale à la cible
-  if (accumulatedSum !== targetSum) {
-    return []; // Retourner un tableau vide si la somme n'est pas atteinte
-  }
-
-  return result;
-}
-
-function findClosestCombination(orders, targetSum) {
-  // Fonction de backtracking pour explorer les combinaisons
-  function backtrack(index, currentSum, currentCombination) {
-    if (currentSum >= targetSum) {
-      return null; // Si la somme courante est supérieure ou égale à targetSum, ignorer cette combinaison
-    }
-    if (index >= orders.length) {
-      return { combination: currentCombination, sum: currentSum }; // Retourner la combinaison actuelle et sa somme
-    }
-
-    let currentOrder = { ...orders[index]._doc };
-    let amountToUse = currentOrder.rest !== undefined && currentOrder.rest > 0 ? currentOrder.rest : currentOrder.amount;
-
-    // Inclure l'objet actuel
-    const includeCombination = backtrack(index + 1, currentSum + amountToUse, [...currentCombination, { ...currentOrder, amountUsed: amountToUse }]);
-    // Exclure l'objet actuel
-    const excludeCombination = backtrack(index + 1, currentSum, currentCombination);
-
-    if (!includeCombination) return excludeCombination;
-    if (!excludeCombination) return includeCombination;
-
-    // Comparer les combinaisons pour trouver celle la plus proche de targetSum mais strictement inférieure
-    if (includeCombination.sum < targetSum && includeCombination.sum > excludeCombination.sum) {
-      return includeCombination;
-    } else {
-      return excludeCombination;
-    }
-  }
-
-  const result = backtrack(0, 0, []);
-  const rest = targetSum - (result ? result.sum : 0);
-
-  return {
-    array: result ? result.combination : [],
-    rest: rest
-  };
-}
-
-exports.manageReturns2 = (req, res, next) => {
   
-    console.log(req.body);
+  function testCombinaisons2(objects, targetSum) {
+    function backtrack(index, currentSum, combination) {
+      if (currentSum === targetSum) return combination;
+      if (currentSum > targetSum || index >= objects.length) return null;
   
-}
+      const current = objects[index];
+      const amount = current.rest !== undefined && current.rest > 0 ? current.rest : current.amount;
+  
+      const withCurrent = backtrack(index + 1, currentSum + amount, [...combination, current]);
+      if (withCurrent) return withCurrent;
+  
+      return backtrack(index + 1, currentSum, combination);
+    }
+  
+    return backtrack(0, 0, []);
+  }
+  
+  function countAmountsToTarget(orders, targetSum) {
+    let accumulated = 0;
+    const result = [];
+  
+    for (const o of orders) {
+      const order = { ...o.toObject?.() ?? o };
+      const amount = order.rest !== undefined ? order.rest : order.amount;
+  
+      if (accumulated + amount > targetSum) {
+        const used = targetSum - accumulated;
+        order.rest = amount - used;
+        result.push(order);
+        accumulated += used;
+        break;
+      } else {
+        accumulated += amount;
+        result.push(order);
+      }
+    }
+  
+    return accumulated === targetSum ? result : [];
+  }
+  
+  function countAmountsToTarget2(orders, targetSum) {
+    let accumulated = 0;
+    const result = [];
+  
+    for (const o of orders) {
+      const order = { ...o.toObject?.() ?? o };
+      const amount = order.rest !== undefined ? order.rest : order.amount;
+  
+      if (accumulated + amount > targetSum) {
+        const used = targetSum - accumulated;
+        order.rest2 = amount - used;
+        result.push(order);
+        accumulated += used;
+        break;
+      } else {
+        accumulated += amount;
+        result.push(order);
+      }
+    }
+  
+    return accumulated === targetSum ? result : [];
+  }
+  
+  function findClosestCombination(orders, targetSum) {
+    function backtrack(index, currentSum, combination) {
+      if (index >= orders.length) {
+        return { combination, sum: currentSum };
+      }
+  
+      const current = orders[index];
+      const amount = current.rest !== undefined && current.rest > 0 ? current.rest : current.amount;
+  
+      const include = backtrack(index + 1, currentSum + amount, [...combination, current]);
+      const exclude = backtrack(index + 1, currentSum, combination);
+  
+      if (!include) return exclude;
+      if (!exclude) return include;
+  
+      return include.sum > exclude.sum && include.sum < targetSum ? include : exclude;
+    }
+  
+    const result = backtrack(0, 0, []);
+    const rest = targetSum - (result?.sum || 0);
+  
+    return {
+      array: result?.combination || [],
+      rest,
+    };
+  }
 
 exports.manageReturns = async (req, res, next) => {
   
@@ -3049,709 +2997,184 @@ exports.manageReturns = async (req, res, next) => {
 }
 
 exports.manageReturns2 = async (req, res, next) => {
+    try {
+      const { phone, amount, balance, type, trans_id } = req.body;
+      const agg_id = req.auth.userId;
   
-  console.log(req.body);
-
-  try{
-    
-    let short; 
-    let balance; 
-    
-    if(req.body.type == "am"){
-      
-        short = {amPhone: req.body.phone, agg_id: req.auth.userId}
-        balance = {amBalance: req.body.balance}
-        
-    }
-    
-     if(req.body.type == "mm"){
-      
-        short = {mmPhone: req.body.phone, agg_id: req.auth.userId}
-        balance = {mmBalance: req.body.balance}
-    }
-    
-     if(req.body.type == "flash"){
-      
-        short = {flashPhone: req.body.phone, agg_id: req.auth.userId}
-        balance = {flashBalance: req.body.balance}
-    }
-    
-     if(req.body.type == "express"){
-      
-        short = {expressPhone: req.body.phone, agg_id: req.auth.userId}
-        balance = {expressBalance: req.body.balance}
-    }
-    
-    
-   const user = await  User.findOne(short); 
-    
-    console.log("l'utilisateur", user);
-    
+      const typeFieldMap = {
+        am: { phoneField: 'amPhone', balanceField: 'amBalance' },
+        mm: { phoneField: 'mmPhone', balanceField: 'mmBalance' },
+        flash: { phoneField: 'flashPhone', balanceField: 'flashBalance' },
+        express: { phoneField: 'expressPhone', balanceField: 'expressBalance' },
+      };
   
-    if(user && user !== null && req.body.balance && req.body.amount && req.body.amount !== req.body.balance){
-      
-        await User.updateOne({_id: req.auth.userId}, {$set: balance}); 
-    
+      if (!typeFieldMap[type]) {
+        return res.status(400).json({ error: "Type non supporté" });
+      }
+  
+      const { phoneField, balanceField } = typeFieldMap[type];
+      const user = await User.findOne({ [phoneField]: phone, agg_id });
+  
+      if (!user) {
+        const fallbackOrder = new Order({
+          amount: parseInt(amount),
+          phone,
+          type,
+          trans_id,
+          agg_id,
+          status: 'return',
+          read: false,
+          date: new Date(),
+        });
+        await fallbackOrder.save();
+        return res.status(200).json({ status: 5 });
+      }
+  
+      // MAJ balance si incohérence
+      if (balance && amount && amount !== balance) {
+        await User.updateOne({ _id: agg_id }, { $set: { [balanceField]: balance } });
+      }
+  
+      // Vérifie si déjà traité
+      const existing = await Order.findOne({ trans_id });
+      if (existing) return res.status(200).json({ status: 0 });
+  
+      const orders = await Order.find({
+        agent_id: user._id,
+        status: { $in: ["initial", "partial"] },
+        type: { $in: ["am", "mm"] },
+      }).sort({ date: -1 });
+  
+      const initials = orders.filter(o => o.status === "initial");
+      const partials = orders.filter(o => o.status === "partial");
+      const intAmount = parseInt(amount);
+      let usedOrders = [];
+  
+      const createRecovery = (order, recoveredAmount) => ({
+        author_id: user.agg_id,
+        amount: recoveredAmount,
+        date: new Date(),
+        return: true,
+      });
+  
+      const formatMessage = (ordersList, prefix) => {
+        return `${prefix} ${ordersList.map(item => {
+          const date = new Date(item.date);
+          const formatted = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()} à ${date.getHours()}h:${date.getMinutes()}mn`;
+          return `${item.type} de ${item.amount} FCFA du ${formatted}`;
+        }).join(', ')}`;
+      };
+  
+      const applyRecovery = async (targetOrders, calcAmountFn, statusAfter = 'recovery') => {
+        for (const order of targetOrders) {
+          const recovered = calcAmountFn(order);
+          const recovery = createRecovery(order, recovered);
+          const recoveries = order.recoveries || [];
+          recoveries.push(recovery);
+          await Order.updateOne({ _id: order._id }, {
+            $set: {
+              status: statusAfter,
+              rest: statusAfter === "partial" ? order.rest - recovered : 0,
+              recoveries,
+            },
+          });
+          usedOrders.push({ ...order.toObject(), recovered });
+        }
+      };
+  
+      // === Matching logique (ordre important) ===
+      const testCases = [
+        {
+          condition: () => initials.some(o => parseInt(o.amount) === intAmount),
+          apply: async () => {
+            const order = initials.find(o => parseInt(o.amount) === intAmount);
+            const recovery = createRecovery(order, intAmount);
+            await Order.updateOne({ _id: order._id }, { $set: { status: "recovery", recoveries: [recovery] } });
+            usedOrders.push({ ...order.toObject(), recovered: intAmount });
+          },
+          messagePrefix: "Utilisé en retour complet pour la commande",
+        },
+        {
+          condition: () => testCombinaisons(initials, intAmount)?.length,
+          apply: () => applyRecovery(testCombinaisons(initials, intAmount), () => intAmount),
+          messagePrefix: "Utilisé en retour complet pour les commandes",
+        },
+        {
+          condition: () => partials.some(o => parseInt(o.rest) === intAmount),
+          apply: async () => {
+            const order = partials.find(o => parseInt(o.rest) === intAmount);
+            const recovery = createRecovery(order, intAmount);
+            const recoveries = order.recoveries || [];
+            recoveries.push(recovery);
+            await Order.updateOne({ _id: order._id }, { $set: { status: "recovery", rest: 0, recoveries } });
+            usedOrders.push({ ...order.toObject(), recovered: intAmount });
+          },
+          messagePrefix: "Utilisé en retour pour boucler la commande",
+        },
+        {
+          condition: () => testCombinaisons(partials, intAmount)?.length,
+          apply: () => applyRecovery(testCombinaisons(partials, intAmount), o => o.rest),
+          messagePrefix: "Utilisé en retour pour les restes des commandes",
+        },
+        {
+          condition: () => testCombinaisons2(orders, intAmount)?.length,
+          apply: () => applyRecovery(testCombinaisons2(orders, intAmount), o => o.rest || o.amount),
+          messagePrefix: "Utilisé en retour complet pour les commandes",
+        },
+        {
+          condition: () => countAmountsToTarget(initials, intAmount)?.length,
+          apply: () => applyRecovery(countAmountsToTarget(initials, intAmount), o => o.rest ? o.amount - o.rest : o.amount, o => o.rest ? "partial" : "recovery"),
+          messagePrefix: "Utilisé en retour pour les commandes",
+        },
+        {
+          condition: () => countAmountsToTarget2(partials, intAmount)?.length,
+          apply: () => applyRecovery(countAmountsToTarget2(partials, intAmount), o => o.rest2 ? o.rest - o.rest2 : o.rest, o => o.rest2 ? "partial" : "recovery"),
+          messagePrefix: "Utilisé en retour pour les commandes",
+        },
+        {
+          condition: () => findClosestCombination(orders, intAmount)?.array?.length,
+          apply: () => applyRecovery(findClosestCombination(orders, intAmount).array, o => o.rest || o.amount),
+          messagePrefix: "Utilisé en retour pour les commandes",
+          withRest: findClosestCombination(orders, intAmount).rest,
+        },
+      ];
+  
+      let message = '';
+      let rest = 0;
+      for (const test of testCases) {
+        if (test.condition()) {
+          await test.apply();
+          message = formatMessage(usedOrders, test.messagePrefix);
+          rest = test.withRest || 0;
+          break;
+        }
+      }
+  
+      if (!usedOrders.length) {
+        message = 'Retour sans correspondance, en attente de validation';
+      }
+  
+      const finalOrder = new Order({
+        amount: intAmount,
+        phone,
+        rec_id: user.rec_id,
+        agg_id: user.agg_id,
+        type,
+        trans_id,
+        status: "return",
+        agent_id: user._id,
+        read: usedOrders.length > 0,
+        rest,
+        date: new Date(),
+        message,
+      });
+  
+      await finalOrder.save();
+      return res.status(201).json({ status: 0 });
+  
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({ error: "Erreur serveur", details: error.message });
     }
-    
-    
-    const oneOrder = await Order.findOne({trans_id: req.body.trans_id}); 
-    
-    if(!oneOrder){
-      
-      
-    if(user){
-      
-     
-      
-
-
-              const orders = await Order.find({agent_id: user._id, status: {$in: ["initial", 'partial']}, type: {$in: ["am", "mm"]}}).sort({date: -1}); 
-        
-              console.log("on met le faya"); 
-              
-              const initials = orders.filter(item => item.status == "initial"); 
-              const partials = orders.filter(item => item.status == "partial");
-              
-              let finalOrders = [];
-              
-              if(initials.length > 0 && initials.filter(item => parseInt(item.amount) == parseInt(req.body.amount)).length > 0){
-                
-               
-                
-                  const orderr = initials.filter(item => parseInt(item.amount) == parseInt(req.body.amount))[0]; 
-                  
-                  console.log("C'est le One", orderr);
-                
-                        const recovery = {
-          
-                                    author_id: user.agg_id, 
-                                    amount: req.body.amount, 
-                                    date: new Date(), 
-                                    return: true
-    
-                                  }
-                
-                  await Order.updateOne({_id: orderr._id}, {$set: {status: "recovery", recoveries: [recovery]}}); 
-                
-                      const newOrder = new Order({
-          
-                          amount: parseInt(req.body.amount),
-                          phone: req.body.phone,
-                          rec_id: user.rec_id, 
-                          agg_id: user.agg_id, 
-                          type: req.body.type, 
-                          status: "return", 
-                          agent_id: user._id,
-                          trans_id: req.body.trans_id,
-                          read: true, 
-                          date: new Date(), 
-                          message: `Utilisé en retour complet pour la commande ${orderr.type} de ${req.body.amount} Fcfa du ${new Date(orderr.date).getDate()}/${new Date(orderr.date).getMonth() + 1}/${new Date(orderr.date).getFullYear()} à ${new Date(orderr.date).getHours()}h:${new Date(orderr.date).getHours()}mn`
-    
-                        });
-                
-                await newOrder.save(); 
-                
-                res.status(201).json({status: 0});
-                
-              
-                
-                next();
-                  
-              
-              }else if(initials.length > 0 && testCombinaisons(initials, parseInt(req.body.amount) ) && testCombinaisons(initials, parseInt(req.body.amount) ).length > 0){
-                
-              
-                
-                const orderrs = testCombinaisons(initials, parseInt(req.body.amount)); 
-                
-                //console.log(orders); 
-                  console.log("c'est par ici", orderrs);
-                
-                for(let orderr of orderrs){
-                  
-                    const recovery = {
-          
-                                    author_id: user.agg_id, 
-                                    amount: req.body.amount, 
-                                    date: new Date(), 
-                                    return: true
-    
-                                  }
-                                    
-                     await  Order.updateOne({_id: orderr._id}, {$set: {status: "recovery", recoveries: [recovery]}})
-                
-                }
-                
-                      const newOrder = new Order({
-          
-                          amount: parseInt(req.body.amount),
-                          phone: req.body.phone,
-                          rec_id: user.rec_id, 
-                          agg_id: user.agg_id, 
-                          type: req.body.type, 
-                          trans_id: req.body.trans_id,
-                          status: "return", 
-                          agent_id: user._id,
-                          read: true, 
-                          date: new Date(), 
-                         // message: `Utilisé en retour partiel pour les commandes  de ${req.body.amount} Fcfa de ${user.name} du ${new Date(orderr.date).getDate()}/${new Date(orderr.date).getMonth() + 1}/${new Date(orderr.date).getFullYear()}`
-                          message: `Utilisé en retour complet pour les commandes : ${orderrs.map(item => {
-      const date = new Date(item.date);
-      const formattedDate = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()} à ${date.getHours()}h:${date.getMinutes()}mn`;
-      return `la commande ${item.type} de ${item.amount} FCFA du  ${formattedDate}`;
-    }).join(', ')}`
-                        });
-                
-                await newOrder.save(); 
-                
-               // console.log("On est dans le 2 x 2 ")
-                
-                res.status(201).json({status: 0});
-                
-            
-                next();
-                  
-              }else if(partials.length > 0 && partials.filter(item => parseInt(item.rest) == parseInt(req.body.amount)).length > 0){
-                
-                
-                  const orderr = partials.filter(item => parseInt(item.rest) == parseInt(req.body.amount))[0]; 
-                  
-                 console.log("C'est le One partial", orderr);
-                
-                        const recovery = {
-          
-                                    author_id: user.agg_id, 
-                                    amount: orderr.rest, 
-                                    date: new Date(), 
-                                    return: true
-    
-                                  }
-                        
-                    const recoveries = orderr.recoveries; 
-                    recoveries.push(recovery);
-                
-                  await Order.updateOne({_id: orderr._id}, {$set: {status: "recovery", rest: 0,  recoveries}}); 
-                
-                      const newOrder = new Order({
-          
-                          amount: parseInt(req.body.amount),
-                          phone: req.body.phone,
-                          rec_id: user.rec_id, 
-                          agg_id: user.agg_id, 
-                          type: req.body.type, 
-                          trans_id: req.body.trans_id,
-                          status: "return", 
-                          agent_id: user._id,
-                          read: true, 
-                          date: new Date(), 
-                          message: `Utilisé en retour pour boucler avec ${orderr.rest} Fcfa la commande ${orderr.type} de ${orderr.amount} Fcfa du ${new Date(orderr.date).getDate()}/${new Date(orderr.date).getMonth() + 1}/${new Date(orderr.date).getFullYear()} à ${new Date(orderr.date).getHours()}h:${new Date(orderr.date).getHours()}mn`
-    
-                        });
-                
-                await newOrder.save(); 
-                
-                res.status(201).json({status: 0});
-                  
-              
-                  next();
-              
-              }else if(partials.length > 0 && testCombinaisons(partials, parseInt(req.body.amount) ) && testCombinaisons(partials, parseInt(req.body.amount) ).length > 0){
-                
-                //console.log("c'est par ici");
-                
-                
-                const orderrs = testCombinaisons(partials, parseInt(req.body.amount)); 
-                
-              //  console.log(orders); 
-                   console.log("C'est le two partial", orderrs);
-                
-                for(let orderr of orderrs){
-                  
-                    const recovery = {
-          
-                                    author_id: user.agg_id, 
-                                    amount: orderr.rest, 
-                                    date: new Date(), 
-                                    return: true
-    
-                                  }
-                    
-                    const recoveries = orderr.recoveries; 
-                    recoveries.push(recovery);
-                    
-                    
-                                    
-                     await  Order.updateOne({_id: orderr._id}, {$set: {status: "recovery", rest: 0, recoveries}})
-                
-                }
-                
-                      const newOrder = new Order({
-          
-                          amount: parseInt(req.body.amount),
-                          phone: req.body.phone,
-                          rec_id: user.rec_id, 
-                          agg_id: user.agg_id, 
-                          type: req.body.type,
-                          trans_id: req.body.trans_id,
-                          status: "return", 
-                          agent_id: user._id,
-                          read: true, 
-                          date: new Date(), 
-                         // message: `Utilisé en retour partiel pour les commandes  de ${req.body.amount} Fcfa de ${user.name} du ${new Date(orderr.date).getDate()}/${new Date(orderr.date).getMonth() + 1}/${new Date(orderr.date).getFullYear()}`
-                          message: `Utilisé en retour complet pour les restes des commandes : ${orderrs.map(item => {
-                            const date = new Date(item.date);
-                            const formattedDate = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()} à ${date.getHours()}h:${date.getMinutes()}mn`;
-                            return `Recouvrement du reste de ${item.rest} Fcfa de la commande ${item.type} de ${item.amount} FCFA du  ${formattedDate}`;
-                          }).join(', ')}`
-                                              });
-    
-                                      await newOrder.save(); 
-    
-                                      //console.log("On est dans le 2 x 2 ")
-    
-                                      res.status(201).json({status: 0});
-    
-                                      
-                                 
-                                      next();
-                  
-              
-              }else if(orders.length > 0 && testCombinaisons2(orders, parseInt(req.body.amount)) && testCombinaisons2(orders, parseInt(req.body.amount)).length > 0){
-                
-                const orderrs = testCombinaisons2(orders, parseInt(req.body.amount)); 
-                
-                            for(let orderr of orderrs){
-                  
-                    const recovery = {
-          
-                                    author_id: user.agg_id, 
-                                    amount: orderr.rest && orderr.rest > 0 ? orderr.rest : orderr.amount, 
-                                    date: new Date(), 
-                                    return: true
-    
-                                  }
-                    
-                    const recoveries = orderr.recoveries ? orderr.recoveries : []; 
-                    recoveries.push(recovery);
-                    
-                    
-                                    
-                     await  Order.updateOne({_id: orderr._id}, {$set: {status: "recovery", rest: 0, recoveries}})
-                
-                }
-                
-                      const newOrder = new Order({
-          
-                          amount: parseInt(req.body.amount),
-                          phone: req.body.phone,
-                          rec_id: user.rec_id, 
-                          agg_id: user.agg_id, 
-                          type: req.body.type, 
-                          trans_id: req.body.trans_id,
-                          status: "return", 
-                          agent_id: user._id,
-                          read: true, 
-                          date: new Date(), 
-                         // message: `Utilisé en retour partiel pour les commandes  de ${req.body.amount} Fcfa de ${user.name} du ${new Date(orderr.date).getDate()}/${new Date(orderr.date).getMonth() + 1}/${new Date(orderr.date).getFullYear()}`
-                          message: `Utilisé en retour complet pour les commandes : ${orderrs.map(item => {
-                            const date = new Date(item.date);
-                            const formattedDate = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()} à ${date.getHours()}h:${date.getMinutes()}mn`;
-                            return `Recouvrement ${item.rest && item.rest > 0 ? " du reste de "+ item.rest +"Fcfa de " : "de"} la commande  ${item.type} de ${item.amount} FCFA du  ${formattedDate}`;
-                          }).join(', ')}`
-                                              });
-    
-                                      await newOrder.save(); 
-    
-                                      //console.log("On est dans le 2 x 2 ")
-    
-                                      res.status(201).json({status: 0});
-    
-                                    
-                                      next();
-                
-                
-    
-                  
-                
-                
-              }else if(initials.length > 0 && countAmountsToTarget(initials, parseInt(req.body.amount)) && countAmountsToTarget(initials, parseInt(req.body.amount)).length > 0){
-                
-          
-                
-                const orderrs = countAmountsToTarget(initials, parseInt(req.body.amount)); 
-                      console.log("c'est la magie", orderrs);
-                
-                for(let orderr of orderrs){
-                  
-                                    const recovery = {
-          
-                                    author_id: user.agg_id, 
-                                    amount: orderr.rest && orderr.rest > 0 ? parseInt(orderr.amount) - parseInt(orderr.rest) : orderr.amount, 
-                                    date: new Date(), 
-                                    return: true
-    
-                                  }
-                    
-           
-                    
-                    
-                                    
-                     await  Order.updateOne({_id: orderr._id}, {$set: {status: orderr.rest && orderr.rest > 0 ? "partial" : "recovery", rest: orderr.rest && orderr.rest > 0 ? orderr.rest : 0, recoveries: [recovery]}})
-                }
-                
-                        const newOrder = new Order({
-          
-                          amount: parseInt(req.body.amount),
-                          phone: req.body.phone,
-                          rec_id: user.rec_id, 
-                          agg_id: user.agg_id, 
-                          type: req.body.type,
-                          trans_id: req.body.trans_id,
-                          status: "return", 
-                          agent_id: user._id,
-                          read: true, 
-                          date: new Date(), 
-                         // message: `Utilisé en retour partiel pour les commandes  de ${req.body.amount} Fcfa de ${user.name} du ${new Date(orderr.date).getDate()}/${new Date(orderr.date).getMonth() + 1}/${new Date(orderr.date).getFullYear()}`
-                          message: `Utilisé en retour pour les commandes : ${orderrs.map(item => {
-                            const date = new Date(item.date);
-                            const formattedDate = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()} à ${date.getHours()}h:${date.getMinutes()}mn`;
-                            return `Recouvrement ${item.rest && item.rest > 0 ? " partiel de "+  `${(parseInt(item.amount) - parseInt(item.rest))}` + "Fcfa de " : "de"} la commande  ${item.type} de ${item.amount} FCFA du  ${formattedDate}`;
-                          }).join(', ')}`
-                                              });
-                
-                
-                        await newOrder.save();  
-                        res.status(201).json({status: 0});
-    
-                  
-                        next();
-                
-                
-              }else if(partials.length > 0 && countAmountsToTarget2(partials, parseInt(req.body.amount)) && countAmountsToTarget2(partials, parseInt(req.body.amount)).length > 0){
-                
-          
-                const orderrs = countAmountsToTarget2(partials, parseInt(req.body.amount)); 
-                      console.log("c'est la seconde magie magie", orderrs);
-                
-                for(let orderr of orderrs){
-                  
-                                  const recovery = {
-          
-                                    author_id: user.agg_id, 
-                                    amount: orderr.rest2 && orderr.rest2 > 0 ? (parseInt(orderr.rest) - parseInt(orderr.rest2)) : orderr.rest, 
-                                    date: new Date(), 
-                                    return: true
-    
-                                  }
-                                    
-                              const recoveries =  orderr.recoveries; 
-                              recoveries.push(recovery);
-                    
-           
-                    
-                    
-                                    
-                     await  Order.updateOne({_id: orderr._id}, {$set: {status: orderr.rest2 && orderr.rest2 > 0 ? "partial" : "recovery", rest: orderr.rest2 && orderr.rest2 > 0 ?  parseInt(orderr.rest2) : 0, recoveries}})
-                }
-                
-                        const newOrder = new Order({
-          
-                          amount: parseInt(req.body.amount),
-                          phone: req.body.phone,
-                          rec_id: user.rec_id, 
-                          agg_id: user.agg_id, 
-                          type: req.body.type,
-                          trans_id: req.body.trans_id,
-                          status: "return", 
-                          agent_id: user._id,
-                          read: true, 
-                          date: new Date(), 
-                         // message: `Utilisé en retour partiel pour les commandes  de ${req.body.amount} Fcfa de ${user.name} du ${new Date(orderr.date).getDate()}/${new Date(orderr.date).getMonth() + 1}/${new Date(orderr.date).getFullYear()}`
-                          message: `Utilisé en retour pour les commandes : ${orderrs.map(item => {
-                            const date = new Date(item.date);
-                            const formattedDate = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()} à ${date.getHours()}h:${date.getMinutes()}mn`;
-                            return `Recouvrement  ${item.rest2 && item.rest2 > 0 ? "partiel de " + `${(parseInt(item.rest) - parseInt(item.rest2))}` +" Fcfa de " : "de "+ item.rest + "Fcfa pour boucler " }  la commande  ${item.type} de ${item.amount} FCFA du  ${formattedDate}`;
-                          }).join(', ')}`
-                                              });
-                
-                
-                        await newOrder.save();  
-                        res.status(201).json({status: 0});
-    
-         
-                next();
-                
-                
-              }else if(orders.length > 0 && countAmountsToTarget2(orders, parseInt(req.body.amount)) && countAmountsToTarget2(orders, parseInt(req.body.amount)).length > 0){
-                
-                            const orderrs = countAmountsToTarget2(orders, parseInt(req.body.amount)); 
-                            
-                            console.log("c'est la troisième magie", orderrs);
-                
-                            for(let orderr of orderrs){
-                              
-                                const recovery = {
-                                    author_id: user.agg_id, 
-                                    amount: (orderr.rest && orderr.rest > 0) ? orderr.rest2 && orderr.rest2 > 0 ?  (parseInt(orderr.rest) - parseInt(orderr.rest2)) : orderr.rest : orderr.rest2 && orderr.rest2 > 0 ? (parseInt(orderr.amount) - parseInt(orderr.rest2)) : orderr.amount , 
-                                    date: new Date(), 
-                                    return: true
-                                }
-                                
-                              const recoveries = orderr.rest && orderr.rest > 0 ? orderr.recoveries : [] ; 
-                              
-                              recoveries.push(recovery);
-                              
-                              await  Order.updateOne({_id: orderr._id}, {$set: {status: orderr.rest2 && orderr.rest2 > 0 ? "partial" : "recovery", rest: (orderr.rest && orderr.rest > 0) ? orderr.rest2 && orderr.rest2 > 0 ? parseInt(orderr.rest) - parseInt(orderr.rest2) : 0 : orderr.rest2 && orderr.rest2 > 0 ? parseInt(orderr.amount) - parseInt(orderr.rest2) : 0 , recoveries}})
-                    
-                            }
-                
-                        const newOrder = new Order({
-          
-                          amount: parseInt(req.body.amount),
-                          phone: req.body.phone,
-                          rec_id: user.rec_id, 
-                          agg_id: user.agg_id, 
-                          type: req.body.type,
-                          trans_id: req.body.trans_id,
-                          status: "return", 
-                          agent_id: user._id,
-                          read: true, 
-                          date: new Date(), 
-                         // message: `Utilisé en retour partiel pour les commandes  de ${req.body.amount} Fcfa de ${user.name} du ${new Date(orderr.date).getDate()}/${new Date(orderr.date).getMonth() + 1}/${new Date(orderr.date).getFullYear()}`
-                          message: `Utilisé en retour pour les commandes : ${orderrs.map(item => {
-                            const date = new Date(item.date);
-                            const formattedDate = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()} à ${date.getHours()}h:${date.getMinutes()}mn`;
-                            return `Recouvrement ${item.rest2 && item.rest2 > 0 ? " partiel de "+ `${item.rest && item.rest > 0 ? (parseInt(item.rest) - parseInt(item.rest2)) : (parseInt(item.amount) - parseInt(item.rest2)) }` +"Fcfa de " : "de"} la commande  ${item.type} de ${item.amount} FCFA du  ${formattedDate}`;
-                          }).join(', ')}`
-                                              });
-                
-                
-                        await newOrder.save();  
-                        res.status(201).json({status: 0});
-    
-           
-                next();
-                
-                
-              }else if(orders.length > 0 && findClosestCombination(orders, parseInt(req.body.amount)).array.length > 0){
-                
-               // console.log("c'est le boss")
-                
-                const orderrs = findClosestCombination(orders, parseInt(req.body.amount)).array; 
-                const theAmount = findClosestCombination(orders, parseInt(req.body.amount)).rest; 
-                
-                      for(let orderr of orderrs){
-                              
-                                const recovery = {
-                                    author_id: user.agg_id, 
-                                    amount: (orderr.rest && orderr.rest > 0) ?  orderr.rest : orderr.amount, 
-                                    date: new Date(), 
-                                    return: true
-                                }
-                                
-                              const recoveries = orderr.rest && orderr.rest > 0 ? orderr.recoveries : []; 
-                              
-                              recoveries.push(recovery);
-                              
-                              await  Order.updateOne({_id: orderr._id}, {$set: {status: "recovery", rest: 0, recoveries}}); 
-                        
-                    
-                            }
-                
-                        const newOrder = new Order({
-          
-                          amount: parseInt(req.body.amount),
-                          phone: req.body.phone,
-                          rec_id: user.rec_id, 
-                          agg_id: user.agg_id, 
-                          type: req.body.type,
-                          trans_id: req.body.trans_id,
-                          status: "return", 
-                          agent_id: user._id,
-                          read: true, 
-                          date: new Date(), 
-                          rest: parseInt(theAmount),
-                         // message: `Utilisé en retour partiel pour les commandes  de ${req.body.amount} Fcfa de ${user.name} du ${new Date(orderr.date).getDate()}/${new Date(orderr.date).getMonth() + 1}/${new Date(orderr.date).getFullYear()}`
-                          message: `Utilisé en retour complet pour les commandes : ${orderrs.map(item => {
-                            const date = new Date(item.date);
-                            const formattedDate = `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()} à ${date.getHours()}h:${date.getMinutes()}mn`;
-                            return `Recouvrement ${item.rest && item.rest > 0 ? "de "+ item.rest +  " Fcfa pour boucler " :  "de " } la commande  ${item.type} de ${item.amount} FCFA du  ${formattedDate}`;
-                          }).join(', ')}`
-                                              });
-                
-                
-                        await newOrder.save();  
-                        res.status(201).json({status: 0});
-                
-              
-                      next();
-                
-                
-              }else if(initials.length > 0 && initials.filter(item => parseInt(item.amount) > parseInt(req.body.amount)).length > 0){
-                
-                  console.log("C'est la folie des initials");
-                
-                const orderr = initials.filter(item => parseInt(item.amount) > parseInt(req.body.amount))[0]; 
-                
-                                    const recovery = {
-          
-                                    author_id: user.agg_id, 
-                                    amount: req.body.amount, 
-                                    date: new Date(), 
-                                    return: true
-    
-                                  }
-                                    
-                     await  Order.updateOne({_id: orderr._id}, {$set: {status: "partial", rest: parseInt(orderr.amount) - parseInt(req.body.amount), recoveries: [recovery]}})
-                
-                        const newOrder = new Order({
-          
-                          amount: parseInt(req.body.amount),
-                          
-                          phone: req.body.phone,
-                          rec_id: user.rec_id, 
-                          agg_id: user.agg_id, 
-                          type: req.body.type,
-                          trans_id: req.body.trans_id,
-                          status: "return", 
-                          agent_id: user._id,
-                          read: true, 
-                          date: new Date(), 
-                          message: `Utilisé en retour partiel pour la commande ${orderr.type} de  ${parseInt(orderr.amount)} Fcfa du ${new Date(orderr.date).getDate()}/${new Date(orderr.date).getMonth() + 1}/${new Date(orderr.date).getFullYear()}`
-    
-                        });
-                
-                await newOrder.save(); 
-                
-                //console.log("On est dans le 2")
-                
-                res.status(201).json({status: 0});
-                
-                  
-                next();
-                
-              
-              }else if(partials.length > 0 && partials.filter(item => parseInt(item.rest) > parseInt(req.body.amount)).length > 0){
-                
-                   console.log("C'est le three partial");
-                
-                  const orderr = partials.filter(item => parseInt(item.rest) > parseInt(req.body.amount))[0]; 
-                
-                                    const recovery = {
-          
-                                    author_id: user.agg_id, 
-                                    amount: req.body.amount, 
-                                    date: new Date(), 
-                                    return: true
-    
-                                  }
-                                    
-                              const recoveries = orderr.recoveries; 
-                              recoveries.push(recovery)
-                                    
-                     await  Order.updateOne({_id: orderr._id}, {$set: {rest: parseInt(orderr.rest) - parseInt(req.body.amount) , recoveries}})
-                
-                        const newOrder = new Order({
-          
-                          amount: parseInt(req.body.amount),
-                          phone: req.body.phone,
-                          rec_id: user.rec_id, 
-                          agg_id: user.agg_id,
-                          trans_id: req.body.trans_id,
-                          type: req.body.type, 
-                          status: "return", 
-                          agent_id: user._id,
-                          read: true, 
-                          date: new Date(), 
-                          message: `Utilisé en retour partiel pour la commande ${orderr.type} de ${parseInt(orderr.amount)} Fcfa du ${new Date(orderr.date).getDate()}/${new Date(orderr.date).getMonth() + 1}/${new Date(orderr.date).getFullYear()}`
-    
-                        });
-                
-                await newOrder.save(); 
-                
-                //console.log("On est dans le 2")
-                
-                res.status(201).json({status: 0});
-                
-                
-                next();
-                  
-              
-              }else{
-                
-                     console.log("C'est le sinon partial");
-                        const newOrder = new Order({
-          
-                          amount: parseInt(req.body.amount),
-                          phone: req.body.phone,
-                          rec_id: user.rec_id, 
-                          agg_id: user.agg_id, 
-                          type: req.body.type,
-                          trans_id: req.body.trans_id,
-                          status: "return", 
-                          agent_id: user._id,
-                          read: false, 
-                          date: new Date(), 
-                        //  message: `Utilisé en retour pour boucler avec ${orderr.rest} Fcfa la commande ${orderr.type} de ${orderr.amount} Fcfa du ${new Date(orderr.date).getDate()}/${new Date(orderr.date).getMonth() + 1}/${new Date(orderr.date).getFullYear()} à ${new Date(orderr.date).getHours()}h:${new Date(orderr.date).getHours()}mn`
-    
-                        });
-                
-                await newOrder.save(); 
-                
-                res.status(201).json({status: 0});
-            
-                next()
-                
-                
-              }
-              
-
-            
-            
-          
-       
-        
-    
-    }else{
-      
-                 const newOrder = new Order({
-    
-                    amount: parseInt(req.body.amount),
-                    phone: req.body.phone,
-                    type: req.body.type,
-                    trans_id: req.body.trans_id,
-                    agg_id: req.auth.userId,
-                    status: "return", 
-                    read: false, 
-                    date: new Date(), 
-                  //  message: `Utilisé en retour pour boucler avec ${orderr.rest} Fcfa la commande ${orderr.type} de ${orderr.amount} Fcfa du ${new Date(orderr.date).getDate()}/${new Date(orderr.date).getMonth() + 1}/${new Date(orderr.date).getFullYear()} à ${new Date(orderr.date).getHours()}h:${new Date(orderr.date).getHours()}mn`
-
-                  });
-          
-          await newOrder.save(); 
-      
-        res.status(200).json({status: 5}); 
-        
-    }
-      
-      
-    }else{
-      
-        res.status(200).json({status: 0}); 
-    }
-    
-    
-
-    
-    
-    
-    
-      
-  }catch(e){
-    
-      console.log(e); 
-      res.status(505).json({e}); 
-  }
-
-}
+  };
+  
