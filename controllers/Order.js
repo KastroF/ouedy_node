@@ -264,7 +264,7 @@ exports.addOrder = async (req, res) => {
 
 exports.checkSendSMS = async (req, res) => {
   
-console.log(req.body);
+console.log("on teste l'envoi", req.body);
   
   let body ; 
   let short; 
@@ -311,7 +311,7 @@ console.log(req.body);
   
   
   
-    Order.findOne({amount, read: false, type: req.body.type, phone: req.body.phone}).sort({date: -1}).then((order) => {
+    Order.findOne({amount, read: false, type: req.body.type, phone: req.body.phone}).sort({date: -1}).limit(1).then((order) => {
       
       console.log("je vois", order);
       
@@ -3035,6 +3035,7 @@ exports.manageReturns2 = async (req, res) => {
       return res.status(200).json({ status: 0, message: "Retour déjà enregistré" });
     }
 
+    
     const orders = await Order.find({
       agent_id: user._id,
       status: { $in: ["initial", "partial"] },
@@ -3161,6 +3162,7 @@ exports.manageReturns2 = async (req, res) => {
       return await saveReturnOrder(closest.array, formatMessage(closest.array, "les commandes approximatives"), closest.rest);
     }
 
+    // Aucun match
     const fallbackOrder = new Order({
       amount: parseInt(amount),
       phone,
@@ -3181,3 +3183,5 @@ exports.manageReturns2 = async (req, res) => {
     return res.status(505).json({ error: e.message });
   }
 };
+
+
