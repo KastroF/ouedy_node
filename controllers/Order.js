@@ -3010,7 +3010,21 @@ exports.manageReturns2 = async (req, res) => {
 
     const user = await User.findOne(short);
     if (!user) {
-      return res.status(200).json({ status: 5 });
+   
+        const fallbackOrder = new Order({
+          amount: parseInt(amount),
+          phone,
+          rec_id: "Inconnu",
+          agg_id: "Inconnu",
+          type,
+          trans_id,
+          status: "return",
+          agent_id: userId,
+          read: false,
+          date: new Date(),
+        });
+        await fallbackOrder.save();
+        return res.status(201).json({ status: 4 });
     }
 
     if (newBalance && amount && amount !== newBalance) {
