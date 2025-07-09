@@ -96,6 +96,108 @@ exports.getPendingReturns = async (req, res) => {
   
     }
 
+    exports.getList2 = async (req, res) => {
+ 
+  
+
+      try {
+        const userFilter = {};
+        if (req.body.status == "rec") {
+          userFilter.rec_id = req.auth.userId;
+        } else if (req.body.status == "agg") {
+          userFilter.agg_id = req.auth.userId;
+        }
+    
+        const limit = 10;
+        let skip = req.body.skip || 0;
+        let usersWithOrders = [];
+        let hasMoreUsers = true;
+        
+      //  console.log("On demarre avec Skip " + skip);
+    
+        while (usersWithOrders.length < limit && hasMoreUsers) {
+          // Étape 1: Récupérer un lot d'utilisateurs avec pagination et tri
+          const users = await User.find(userFilter)
+            .sort({ date: 1 })
+            .lean();
+    
+          if (users.length === 0) {
+            hasMoreUsers = false;
+            break;
+          }
+    
+          // Obtenir les user_id
+          const userIds = users.map(user => user._id.toString());
+    
+          // Étape 2: Agréger les commandes pour ces utilisateurs
+          const orders = await Order.aggregate([
+            {
+              $match: {
+                agent_id: { $in: userIds },
+                status: { $in: ["partial", "initial"] }
+              }
+            },
+            {
+              $group: {
+                _id: "$agent_id", // Grouper par utilisateur
+                totalAmount: {
+                  $sum: {
+                    $cond: { if: { $eq: ["$status", "initial"] }, then: "$amount", else: 0 }
+                  }
+                },
+                totalRest: {
+                  $sum: {
+                    $cond: { if: { $eq: ["$status", "partial"] }, then: "$rest", else: 0 }
+                  }
+                }
+              }
+            }
+          ]);
+    
+          // Étape 3: Associer les résultats agrégés aux utilisateurs et filtrer ceux sans commandes
+          users.forEach(user => {
+            
+           // console.log(user);
+            
+           
+            
+            const order = orders.find(o => o._id.toString() === user._id.toString());
+            const totalSum = order ? order.totalAmount + order.totalRest : 0;
+            
+             if(user && user.name == "Konate"){
+              
+                console.log( "l'order dit quoi ?", order);
+               console.log(totalSum);
+            }
+    
+            // Ajouter uniquement les utilisateurs avec des commandes valides
+            if (totalSum > 0) {
+              usersWithOrders.push({ name: user.name, id: user._id, sum: totalSum });
+            }
+          });
+    
+          // Ajuster le skip pour le prochain lot uniquement si des utilisateurs valides ont été trouvés
+          skip += limit;  
+        }
+    
+        // Limiter les résultats au maximum de 10
+        console.log(usersWithOrders.length);
+       // usersWithOrders = usersWithOrders.slice(0, limit);
+    
+        // Calculer le prochain skip à renvoyer
+        const nextSkip = usersWithOrders.length >= limit ? skip : null;
+    
+       // console.log("le skip est " + nextSkip);
+    
+        res.status(200).json({ status: 0, list: usersWithOrders, skip: nextSkip });
+        
+      } catch (err) {
+        console.log(err);
+        res.status(505).json({ err });
+      }
+    };
+    
+
 exports.getList = async (req, res) => {
  
   

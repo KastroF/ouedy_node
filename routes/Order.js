@@ -20,6 +20,7 @@ router.post("/deleteorder", auth, orderCtrl.deleteOrder);
 router.post("/managereturns", auth, orderCtrl.manageReturns2);
 router.post("/getpendingreturns", auth, orderCtrl.getPendingReturns);
 router.post("/getlist", auth, orderCtrl.getList);
+router.post("/getlist2", auth, orderCtrl.getList2);
 router.post("/addagentorder", auth, orderCtrl.addAgentOrder);
 
 module.exports = router; 
