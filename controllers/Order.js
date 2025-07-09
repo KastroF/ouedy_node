@@ -3014,12 +3014,10 @@ exports.manageReturns2 = async (req, res) => {
         const fallbackOrder = new Order({
           amount: parseInt(amount),
           phone,
-          rec_id: "Inconnu",
-          agg_id: userId,
+          agg_id: req.auth.userId,
           type,
           trans_id,
           status: "return",
-          agent_id: "Inconnu",
           read: false,
           date: new Date(),
         });
