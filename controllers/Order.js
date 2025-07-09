@@ -3015,11 +3015,11 @@ exports.manageReturns2 = async (req, res) => {
           amount: parseInt(amount),
           phone,
           rec_id: "Inconnu",
-          agg_id: "Inconnu",
+          agg_id: userId,
           type,
           trans_id,
           status: "return",
-          agent_id: userId,
+          agent_id: "Inconnu",
           read: false,
           date: new Date(),
         });
