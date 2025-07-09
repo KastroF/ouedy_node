@@ -345,9 +345,7 @@ console.log("on teste l'envoi", req.body);
 
 
 exports.launchOrder = async (req, res) => {
-  
-  console.log(req.body); 
-  
+  console.log(req.body);
   try {
     const user = await User.findById(req.auth.userId);
     const agg = await User.findById(user.agg_id);
@@ -361,7 +359,6 @@ exports.launchOrder = async (req, res) => {
       });
     }
 
-    // Vérification du solde agrégateur selon le service
     const serviceBalances = {
       "Airtel Money": agg.amBalance,
       "Moov Money": agg.mmBalance,
@@ -378,7 +375,6 @@ exports.launchOrder = async (req, res) => {
       });
     }
 
-    // Agrégation des commandes existantes
     const result = await Order.aggregate([
       {
         $match: {
@@ -405,11 +401,6 @@ exports.launchOrder = async (req, res) => {
 
     const { totalAmount = 0, totalRest = 0 } = result[0] || {};
     const totalInProgress = totalAmount + totalRest;
-    
-    console.log("totalAmount", totalAmount)
-    console.log("totalRest", totalRest)
-    console.log("totalInProgress", totalInProgress)
-    
 
     if ((parseInt(totalInProgress) + parseInt(amount)) > user.amount) {
       return res.status(200).json({
@@ -418,7 +409,6 @@ exports.launchOrder = async (req, res) => {
       });
     }
 
-    // Mapping pour récupérer le téléphone et le type
     const serviceMap = {
       "Flash Airtel": { phone: user.flashPhone, type: "flash" },
       "Express": { phone: user.expressPhone, type: "express" },
@@ -433,20 +423,17 @@ exports.launchOrder = async (req, res) => {
 
     const lastOrder = await Order.findOne({
       agent_id: req.auth.userId,
-      type: service.type
+      type: service.type,
+      phone: service.phone,
+      amount: parseInt(amount),
     }).sort({ date: -1 });
 
     if (lastOrder) {
-      const diffMinutes =
-        Math.abs(new Date() - new Date(lastOrder.date)) / (1000 * 60);
-
-      const sameAmount = parseInt(lastOrder.amount) === parseInt(amount);
-      const sameType = lastOrder.type === service.type;
-
-      if (diffMinutes <= 10 && sameAmount && sameType) {
+      const diffMinutes = (Date.now() - new Date(lastOrder.date).getTime()) / (1000 * 60);
+      if (diffMinutes <= 10) {
         return res.status(201).json({
           status: 1,
-          message: "Il s'agit d'une transaction identique, réessayez au moins après 10 min"
+          message: "Commande identique détectée, veuillez réessayer après 10 minutes"
         });
       }
     }
