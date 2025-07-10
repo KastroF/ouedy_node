@@ -346,6 +346,7 @@ exports.addOrder = async (req, res) => {
       type: req.body.type, 
       status: req.body.goodPhone ? "order" : "initial", 
       agent_id: req.body._id,
+      trans_id: `${req.body.phone ?? ""}_${req.body.amount ?? 0}_${req.body.type ?? ""}_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
       read: false, 
       date: new Date()
         
@@ -548,6 +549,7 @@ exports.launchOrder = async (req, res) => {
       type: service.type,
       status: "order",
       agent_id: req.auth.userId,
+      trans_id: `${service.phone ?? ""}_${amount ?? 0}_${service.type ?? ""}_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
       read: false,
       date: new Date()
     });
