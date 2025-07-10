@@ -19,5 +19,6 @@ const orderSchema = mongoose.Schema({
   
 })
 
+orderSchema.index({ trans_id: 1 }, { unique: true }); 
 
 module.exports = mongoose.model("Order", orderSchema);
