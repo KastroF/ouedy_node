@@ -3084,42 +3084,71 @@ exports.manageReturns = async (req, res, next) => {
           
   
 }
+
 exports.manageReturns2 = async (req, res) => {
   try {
     const { phone, type, amount, balance: newBalance, trans_id } = req.body;
     const userId = req.auth.userId;
 
-    let short, balance;
+    const shortTypes = {
+      am: ["amPhone", "amBalance"],
+      mm: ["mmPhone", "mmBalance"],
+      flash: ["flashPhone", "flashBalance"],
+      express: ["expressPhone", "expressBalance"]
+    };
 
-    switch (type) {
-      case "am": short = { amPhone: phone, agg_id: userId }; balance = { amBalance: newBalance }; break;
-      case "mm": short = { mmPhone: phone, agg_id: userId }; balance = { mmBalance: newBalance }; break;
-      case "flash": short = { flashPhone: phone, agg_id: userId }; balance = { flashBalance: newBalance }; break;
-      case "express": short = { expressPhone: phone, agg_id: userId }; balance = { expressBalance: newBalance }; break;
-    }
+    const [phoneKey, balanceKey] = shortTypes[type] || [];
+    const short = { [phoneKey]: phone, agg_id: userId };
+    const balance = { [balanceKey]: newBalance };
 
-    // Vérifier si déjà enregistré par trans_id
     const existingOrder = await Order.findOne({ trans_id });
     if (existingOrder) {
       return res.status(200).json({ status: 0, message: "Retour déjà enregistré" });
     }
 
-    // Chercher le user
     const user = await User.findOne(short);
+    const parsedAmount = parseInt(amount);
 
-    // Si le user est inconnu, enregistrer quand même le retour "fallback"
+    const recoveryObj = amt => ({
+      author_id: user?.agg_id,
+      amount: amt,
+      date: new Date(),
+      return: true,
+    });
+
+    const formatMessage = (orders, label) => {
+      return `Utilisé en retour pour ${label} : ` + orders.map(item => {
+        const d = new Date(item.date);
+        return `${item.type} de ${item.amount} FCFA du ${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()} à ${d.getHours()}h:${d.getMinutes()}mn`;
+      }).join(", ");
+    };
+
+    const updateOrders = async (targets, updateFn) => {
+      for (const o of targets) {
+        await Order.updateOne({ _id: o._id }, updateFn(o));
+      }
+    };
+
+    const saveReturnOrder = async (usedOrders = [], message = "", rest = 0) => {
+      await Order.create({
+        amount: parsedAmount,
+        phone,
+        rec_id: user?.rec_id ?? null,
+        agg_id: user?.agg_id ?? userId,
+        type,
+        trans_id,
+        status: "return",
+        agent_id: user?._id ?? null,
+        read: Boolean(user),
+        date: new Date(),
+        rest,
+        message,
+      });
+    };
+
     if (!user) {
       try {
-        await Order.create({
-          amount: parseInt(amount),
-          phone,
-          agg_id: userId,
-          type,
-          trans_id,
-          status: "return",
-          read: false,
-          date: new Date(),
-        });
+        await saveReturnOrder();
         return res.status(201).json({ status: 4 });
       } catch (err) {
         if (err.code === 11000) {
@@ -3129,155 +3158,99 @@ exports.manageReturns2 = async (req, res) => {
       }
     }
 
-    // Mise à jour du solde
-    if (newBalance && amount && amount !== newBalance) {
+    if (newBalance && parsedAmount !== newBalance) {
       await User.updateOne({ _id: userId }, { $set: balance });
     }
 
     const orders = await Order.find({
       agent_id: user._id,
       status: { $in: ["initial", "partial"] },
-      type: { $in: ["am", "mm", "flash", "express"] },
+      type: { $in: Object.keys(shortTypes) },
     }).sort({ date: -1 });
 
     const initials = orders.filter(o => o.status === "initial");
     const partials = orders.filter(o => o.status === "partial");
 
-    const recoveryObj = (amt) => ({
-      author_id: user.agg_id,
-      amount: amt,
-      date: new Date(),
-      return: true,
-    });
+    const matchHandlers = [
+      {
+        matcher: () => initials.find(o => o.amount === parsedAmount),
+        updater: (o) => ({ $set: { status: "recovery", recoveries: [recoveryObj(parsedAmount)] } }),
+        label: "la commande"
+      },
+      {
+        matcher: () => testCombinaisons(initials, parsedAmount),
+        updater: (o) => ({ $set: { status: "recovery", recoveries: [recoveryObj(o.amount)] } }),
+        label: "les commandes"
+      },
+      {
+        matcher: () => partials.find(o => o.rest === parsedAmount),
+        updater: (o) => {
+          const recoveries = o.recoveries || [];
+          recoveries.push(recoveryObj(o.rest));
+          return { $set: { status: "recovery", rest: 0, recoveries } };
+        },
+        label: "le reste de la commande"
+      },
+      {
+        matcher: () => testCombinaisons2(orders, parsedAmount),
+        updater: (o) => {
+          const recoveries = o.recoveries || [];
+          recoveries.push(recoveryObj(o.rest > 0 ? o.rest : o.amount));
+          return { $set: { status: "recovery", rest: 0, recoveries } };
+        },
+        label: "les commandes"
+      },
+      {
+        matcher: () => countAmountsToTarget(initials, parsedAmount),
+        updater: (o) => {
+          const partial = o.rest && o.rest > 0;
+          const recoveries = [recoveryObj(partial ? o.amount - o.rest : o.amount)];
+          return { $set: { status: partial ? "partial" : "recovery", rest: partial ? o.rest : 0, recoveries } };
+        },
+        label: "les commandes"
+      },
+      {
+        matcher: () => countAmountsToTarget2(partials, parsedAmount),
+        updater: (o) => {
+          const partial = o.rest2 && o.rest2 > 0;
+          const recoveries = o.recoveries || [];
+          recoveries.push(recoveryObj(partial ? o.rest - o.rest2 : o.rest));
+          return { $set: { status: partial ? "partial" : "recovery", rest: partial ? o.rest2 : 0, recoveries } };
+        },
+        label: "les restes des commandes"
+      },
+      {
+        matcher: () => findClosestCombination(orders, parsedAmount)?.array || [],
+        updater: (o) => {
+          const recoveries = o.recoveries || [];
+          recoveries.push(recoveryObj(o.rest > 0 ? o.rest : o.amount));
+          return { $set: { status: "recovery", rest: 0, recoveries } };
+        },
+        label: "les commandes approximatives",
+        restHandler: () => findClosestCombination(orders, parsedAmount)?.rest || 0
+      }
+    ];
 
-    const formatMessage = (orderList, label) => {
-      return `Utilisé en retour pour ${label} : ${orderList.map(item => {
-        const d = new Date(item.date);
-        return `${item.type} de ${item.amount} FCFA du ${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()} à ${d.getHours()}h:${d.getMinutes()}mn`;
-      }).join(", ")}`;
-    };
-
-    const saveReturnOrder = async (usedOrders, message, rest = 0) => {
-      try {
-        await Order.create({
-          amount: parseInt(amount),
-          phone,
-          rec_id: user.rec_id,
-          agg_id: user.agg_id,
-          type,
-          trans_id,
-          status: "return",
-          agent_id: user._id,
-          read: true,
-          date: new Date(),
-          rest,
-          message,
-        });
-        return res.status(201).json({ status: 0 });
-      } catch (err) {
-        if (err.code === 11000) {
-          return res.status(200).json({ status: 0, message: "Retour déjà enregistré (conflit)" });
+    for (const handler of matchHandlers) {
+      const matched = handler.matcher();
+      if (matched?.length || matched?._id) {
+        const list = Array.isArray(matched) ? matched : [matched];
+        try {
+          await saveReturnOrder(list, formatMessage(list, handler.label), handler.restHandler?.() || 0);
+          await updateOrders(list, handler.updater);
+          return res.status(201).json({ status: 0 });
+        } catch (err) {
+          if (err.code === 11000) {
+            return res.status(200).json({ status: 0, message: "Retour déjà enregistré (conflit)" });
+          }
+          throw err;
         }
-        throw err;
       }
-    };
-
-    // Match exact
-    const exactMatch = initials.find(o => parseInt(o.amount) === parseInt(amount));
-    if (exactMatch) {
-      await Order.updateOne({ _id: exactMatch._id }, {
-        $set: { status: "recovery", recoveries: [recoveryObj(amount)] },
-      });
-      return await saveReturnOrder([exactMatch], formatMessage([exactMatch], "la commande"));
     }
 
-    // Combinaisons
-    const combo1 = testCombinaisons(initials, parseInt(amount));
-    if (combo1?.length) {
-      for (const o of combo1) {
-        await Order.updateOne({ _id: o._id }, {
-          $set: { status: "recovery", recoveries: [recoveryObj(o.amount)] },
-        });
-      }
-      return await saveReturnOrder(combo1, formatMessage(combo1, "les commandes"));
-    }
-
-    // Match partiel exact
-    const partialMatch = partials.find(o => parseInt(o.rest) === parseInt(amount));
-    if (partialMatch) {
-      const recoveries = partialMatch.recoveries || [];
-      recoveries.push(recoveryObj(partialMatch.rest));
-      await Order.updateOne({ _id: partialMatch._id }, {
-        $set: { status: "recovery", rest: 0, recoveries },
-      });
-      return await saveReturnOrder([partialMatch], formatMessage([partialMatch], "le reste de la commande"));
-    }
-
-    // Combinaisons sur tous les ordres
-    const combo2 = testCombinaisons2(orders, parseInt(amount));
-    if (combo2?.length) {
-      for (const o of combo2) {
-        const recoveries = o.recoveries || [];
-        recoveries.push(recoveryObj(o.rest > 0 ? o.rest : o.amount));
-        await Order.updateOne({ _id: o._id }, {
-          $set: { status: "recovery", rest: 0, recoveries },
-        });
-      }
-      return await saveReturnOrder(combo2, formatMessage(combo2, "les commandes"));
-    }
-
-    // Compte exact partiel
-    const count1 = countAmountsToTarget(initials, parseInt(amount));
-    if (count1?.length) {
-      for (const o of count1) {
-        const partial = o.rest && o.rest > 0;
-        const recoveries = [recoveryObj(partial ? o.amount - o.rest : o.amount)];
-        await Order.updateOne({ _id: o._id }, {
-          $set: { status: partial ? "partial" : "recovery", rest: partial ? o.rest : 0, recoveries },
-        });
-      }
-      return await saveReturnOrder(count1, formatMessage(count1, "les commandes"));
-    }
-
-    const count2 = countAmountsToTarget2(partials, parseInt(amount));
-    if (count2?.length) {
-      for (const o of count2) {
-        const partial = o.rest2 && o.rest2 > 0;
-        const recoveries = o.recoveries || [];
-        recoveries.push(recoveryObj(partial ? o.rest - o.rest2 : o.rest));
-        await Order.updateOne({ _id: o._id }, {
-          $set: { status: partial ? "partial" : "recovery", rest: partial ? o.rest2 : 0, recoveries },
-        });
-      }
-      return await saveReturnOrder(count2, formatMessage(count2, "les restes des commandes"));
-    }
-
-    const closest = findClosestCombination(orders, parseInt(amount));
-    if (closest?.array?.length) {
-      for (const o of closest.array) {
-        const recoveries = o.recoveries || [];
-        recoveries.push(recoveryObj(o.rest > 0 ? o.rest : o.amount));
-        await Order.updateOne({ _id: o._id }, {
-          $set: { status: "recovery", rest: 0, recoveries },
-        });
-      }
-      return await saveReturnOrder(closest.array, formatMessage(closest.array, "les commandes approximatives"), closest.rest);
-    }
-
-    // Si aucun match, fallback
+    // Aucun match — fallback final
     try {
-      await Order.create({
-        amount: parseInt(amount),
-        phone,
-        rec_id: user.rec_id,
-        agg_id: user.agg_id,
-        type,
-        trans_id,
-        status: "return",
-        agent_id: user._id,
-        read: false,
-        date: new Date(),
-      });
+      await saveReturnOrder();
       return res.status(201).json({ status: 0 });
     } catch (err) {
       if (err.code === 11000) {
