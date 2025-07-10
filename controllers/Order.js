@@ -3085,7 +3085,7 @@ exports.manageReturns = async (req, res, next) => {
   
 }
 exports.manageReturns2 = async (req, res) => {
- /* try {
+  try {
     const { phone, type, amount, balance: newBalance, trans_id } = req.body;
     const userId = req.auth.userId;
 
@@ -3289,5 +3289,5 @@ exports.manageReturns2 = async (req, res) => {
   } catch (e) {
     console.error(e);
     return res.status(505).json({ error: e.message });
-  }*/
+  }
 };
