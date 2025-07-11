@@ -3086,11 +3086,11 @@ exports.manageReturns = async (req, res, next) => {
           
   
 }
-
 exports.manageReturns2 = async (req, res) => {
   try {
     const { phone, type, amount, balance: newBalance, trans_id } = req.body;
     const userId = req.auth.userId;
+    const parsedAmount = parseInt(amount);
 
     const shortTypes = {
       am: ["amPhone", "amBalance"],
@@ -3109,7 +3109,6 @@ exports.manageReturns2 = async (req, res) => {
     }
 
     const user = await User.findOne(short);
-    const parsedAmount = parseInt(amount);
 
     const recoveryObj = amt => ({
       author_id: user?.agg_id,
@@ -3141,7 +3140,7 @@ exports.manageReturns2 = async (req, res) => {
         trans_id,
         status: "return",
         agent_id: user?._id ?? null,
-        read: Boolean(user),
+        read: usedOrders.length > 0,
         date: new Date(),
         rest,
         message,
@@ -3150,7 +3149,7 @@ exports.manageReturns2 = async (req, res) => {
 
     if (!user) {
       try {
-        await saveReturnOrder();
+        await saveReturnOrder([], "", parsedAmount);
         return res.status(201).json({ status: 4 });
       } catch (err) {
         if (err.code === 11000) {
@@ -3177,12 +3176,14 @@ exports.manageReturns2 = async (req, res) => {
       {
         matcher: () => initials.find(o => o.amount === parsedAmount),
         updater: (o) => ({ $set: { status: "recovery", recoveries: [recoveryObj(parsedAmount)] } }),
-        label: "la commande"
+        label: "la commande",
+        usedAmount: parsedAmount
       },
       {
         matcher: () => testCombinaisons(initials, parsedAmount),
         updater: (o) => ({ $set: { status: "recovery", recoveries: [recoveryObj(o.amount)] } }),
-        label: "les commandes"
+        label: "les commandes",
+        usedAmount: parsedAmount
       },
       {
         matcher: () => partials.find(o => o.rest === parsedAmount),
@@ -3191,7 +3192,8 @@ exports.manageReturns2 = async (req, res) => {
           recoveries.push(recoveryObj(o.rest));
           return { $set: { status: "recovery", rest: 0, recoveries } };
         },
-        label: "le reste de la commande"
+        label: "le reste de la commande",
+        usedAmount: parsedAmount
       },
       {
         matcher: () => testCombinaisons2(orders, parsedAmount),
@@ -3200,7 +3202,8 @@ exports.manageReturns2 = async (req, res) => {
           recoveries.push(recoveryObj(o.rest > 0 ? o.rest : o.amount));
           return { $set: { status: "recovery", rest: 0, recoveries } };
         },
-        label: "les commandes"
+        label: "les commandes",
+        usedAmount: parsedAmount
       },
       {
         matcher: () => countAmountsToTarget(initials, parsedAmount),
@@ -3209,7 +3212,8 @@ exports.manageReturns2 = async (req, res) => {
           const recoveries = [recoveryObj(partial ? o.amount - o.rest : o.amount)];
           return { $set: { status: partial ? "partial" : "recovery", rest: partial ? o.rest : 0, recoveries } };
         },
-        label: "les commandes"
+        label: "les commandes",
+        usedAmount: parsedAmount
       },
       {
         matcher: () => countAmountsToTarget2(partials, parsedAmount),
@@ -3219,7 +3223,8 @@ exports.manageReturns2 = async (req, res) => {
           recoveries.push(recoveryObj(partial ? o.rest - o.rest2 : o.rest));
           return { $set: { status: partial ? "partial" : "recovery", rest: partial ? o.rest2 : 0, recoveries } };
         },
-        label: "les restes des commandes"
+        label: "les restes des commandes",
+        usedAmount: parsedAmount
       },
       {
         matcher: () => findClosestCombination(orders, parsedAmount)?.array || [],
@@ -3229,6 +3234,7 @@ exports.manageReturns2 = async (req, res) => {
           return { $set: { status: "recovery", rest: 0, recoveries } };
         },
         label: "les commandes approximatives",
+        usedAmount: () => parsedAmount - (findClosestCombination(orders, parsedAmount)?.rest || 0),
         restHandler: () => findClosestCombination(orders, parsedAmount)?.rest || 0
       }
     ];
@@ -3237,8 +3243,10 @@ exports.manageReturns2 = async (req, res) => {
       const matched = handler.matcher();
       if (matched?.length || matched?._id) {
         const list = Array.isArray(matched) ? matched : [matched];
+        const used = typeof handler.usedAmount === "function" ? handler.usedAmount() : handler.usedAmount;
+        const rest = parsedAmount - used;
         try {
-          await saveReturnOrder(list, formatMessage(list, handler.label), handler.restHandler?.() || 0);
+          await saveReturnOrder(list, formatMessage(list, handler.label), rest);
           await updateOrders(list, handler.updater);
           return res.status(201).json({ status: 0 });
         } catch (err) {
@@ -3252,7 +3260,7 @@ exports.manageReturns2 = async (req, res) => {
 
     // Aucun match — fallback final
     try {
-      await saveReturnOrder();
+      await saveReturnOrder([], "", parsedAmount);
       return res.status(201).json({ status: 0 });
     } catch (err) {
       if (err.code === 11000) {
@@ -3266,3 +3274,4 @@ exports.manageReturns2 = async (req, res) => {
     return res.status(505).json({ error: e.message });
   }
 };
+
