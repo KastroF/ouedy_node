@@ -306,6 +306,8 @@ exports.addAgentOrder = async (req, res) => {
     const user =  await User.findOne({_id: req.body._id})
           
       try{
+
+        console.log(req.body);
         
     const order = new Order({
       
@@ -314,9 +316,11 @@ exports.addAgentOrder = async (req, res) => {
       type: req.body.type, 
       status: req.body.status,
       agent_id: req.body._id,
-      read: false, 
-      date: new Date()
-        
+      read: req.body.read ? true : false, 
+      date: new Date(), 
+      trans_id: req.body.trans_id ? req.body.trans_id : `${req.body.phone ?? ""}_${req.body.amount ?? 0}_${req.body.type ?? ""}_${Date.now()}_${Math.floor(Math.random() * 10000)}`
+      
+      
     });
         
         
