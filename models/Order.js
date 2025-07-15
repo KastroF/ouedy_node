@@ -15,7 +15,8 @@ const orderSchema = mongoose.Schema({
     read: {type: Boolean}, 
     phone: {type: String}, 
     message: {type: String},   
-    trans_id: {type: String}
+    trans_id: {type: String}, 
+    username: {type: String}
   
 })
 

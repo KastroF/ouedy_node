@@ -22,5 +22,7 @@ router.post("/getpendingreturns", auth, orderCtrl.getPendingReturns);
 router.post("/getlist", auth, orderCtrl.getList);
 router.post("/getlist2", auth, orderCtrl.getList2);
 router.post("/addagentorder", auth, orderCtrl.addAgentOrder);
+router.get("/getagentorders", auth, orderCtrl.getAgentOrders); 
+
 
 module.exports = router; 

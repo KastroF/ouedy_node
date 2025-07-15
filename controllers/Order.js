@@ -7,6 +7,24 @@ const mongoose = require('mongoose');
 const ObjectId = mongoose.Types.ObjectId;
 
 
+exports.getAgentOrders = async (req, res) => {
+
+    try {
+
+      const orders = await Order.find({agent_id: req.auth.userId, 
+        agg_id: { $in: [null, undefined] },
+        type: req.body.type}).sort({date: -1}).skip(req.body.startAt).limit(10); 
+
+      res.status(200).json({status: 0, orders, startAt: orders.length === 10 ? parseInt(req.body.startAt) + 10 : null});
+
+
+    }catch(err){
+
+      console.log(err); 
+      res.status(505).json({err});
+    }
+}
+
 exports.getPendingReturns = async (req, res) => {
   
   let reqq = {}; 
@@ -318,9 +336,7 @@ exports.addAgentOrder = async (req, res) => {
       agent_id: req.body._id,
       read: req.body.read ? true : false, 
       date: new Date(), 
-      trans_id: req.body.trans_id ? req.body.trans_id : `${req.body.phone ?? ""}_${req.body.amount ?? 0}_${req.body.type ?? ""}_${Date.now()}_${Math.floor(Math.random() * 10000)}`
-      
-      
+      trans_id: req.body.trans_id ? req.body.trans_id : `${req.body.phone ?? ""}_${req.body.amount ?? 0}_${req.body.type ?? ""}_${Date.now()}_${Math.floor(Math.random() * 10000)}` 
     });
         
         
