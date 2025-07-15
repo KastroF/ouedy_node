@@ -693,7 +693,7 @@ exports.getOrders = async (req, res) => {
   
     if(req.body.userStatus === "pos"){
       
-        body = {agent_id: req.auth.userId}
+        body = {agent_id: req.auth.userId, agg_id: {$in: [null, undefined]}}
     }
   
      if(req.body.userStatus === "rec"){
