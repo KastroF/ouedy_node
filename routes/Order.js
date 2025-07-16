@@ -23,6 +23,7 @@ router.post("/getlist", auth, orderCtrl.getList);
 router.post("/getlist2", auth, orderCtrl.getList2);
 router.post("/addagentorder", auth, orderCtrl.addAgentOrder);
 router.post("/getagentorders", auth, orderCtrl.getAgentOrders); 
+router.post("/validerdepot", auth, orderCtrl.validerDepot); 
 
 
 module.exports = router; 

@@ -7,6 +7,55 @@ const mongoose = require('mongoose');
 const ObjectId = mongoose.Types.ObjectId;
 
 
+exports.validerDepot = async (req, res) => {
+ 
+  try {
+    const { agent_id, amount, phone, type, status } = req.body;
+
+    if (!agent_id || !amount || !phone || !type || !status) {
+      return res.status(400).json({ message: 'Champs requis manquants.' });
+    }
+
+    const fourMinutesAgo = new Date(Date.now() - 4 * 60 * 1000);
+
+    const existingOrder = await Order.findOne({
+      agent_id,
+      amount,
+      phone,
+      type,
+      status,
+      read: false,
+      date: { $gte: fourMinutesAgo }
+    });
+
+    if (existingOrder) {
+      existingOrder.read = true;
+      await existingOrder.save();
+
+      return res.status(200).json({
+        message: 'Commande mise à jour (read=true)',
+        updatedOrder: existingOrder
+      });
+    
+    }else{
+
+        res.status(200).json({status: 1});
+    }
+
+
+
+    return res.status(201).json({
+      message: 'Nouvelle commande créée',
+      newOrder
+    });
+
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: 'Erreur serveur.' });
+  }
+}
+
+
 exports.getAgentOrders = async (req, res) => {
 
     try {
