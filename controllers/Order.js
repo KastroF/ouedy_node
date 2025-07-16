@@ -383,7 +383,7 @@ exports.addAgentOrder = async (req, res) => {
       type: req.body.type, 
       status: req.body.status,
       agent_id: req.body._id,
-      read: req.body.read ? true : false, 
+      read: true, 
       date: new Date(), 
       trans_id: req.body.trans_id ? req.body.trans_id : `${req.body.phone ?? ""}_${req.body.amount ?? 0}_${req.body.type ?? ""}_${Date.now()}_${Math.floor(Math.random() * 10000)}` 
     });
