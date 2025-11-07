@@ -1443,6 +1443,7 @@ exports.getReports = async (req, res) => {
   
     let pipeline; 
     let pipeline2;
+    let pipeline4;
   
   try{
     
@@ -1497,6 +1498,74 @@ exports.getReports = async (req, res) => {
         }
       },
   ];
+
+  pipeline4 = [
+    {
+      $match: {
+        $and: [
+          { 'recoveries.date': { $gte: start, $lte: end } },
+          { type },
+          {read: true},
+          { status: { $in: ['partial', 'recovery'] } },
+          { 'recoveries.author_id': req.body._id },
+        ],
+      },
+    },
+    {
+      $unwind: '$recoveries', // Décompose le tableau recoveries
+    },
+    {
+      $match: {
+        'recoveries.author_id': req.body._id,
+        'recoveries.date': { $gte: start, $lte: end },
+      },
+    },
+    {
+      $addFields: {
+        'recoveries.amountNumber': {
+          $cond: {
+            if: { $isNumber: '$recoveries.amount' },
+            then: '$recoveries.amount',
+            else: {
+              $convert: {
+                input: '$recoveries.amount',
+                to: 'double',
+                onError: 0,
+                onNull: 0,
+              },
+            },
+          },
+        },
+      },
+    },
+    {
+      $group: {
+        _id: null,
+        totalWithReturn: {
+          $sum: {
+            $cond: [
+              { $eq: ['$recoveries.return', true] },
+              '$recoveries.amountNumber',
+              0,
+            ],
+          },
+        },
+        totalWithoutReturn: {
+          $sum: {
+            $cond: [
+              { $or: [
+                { $eq: ['$recoveries.return', false] },
+                { $not: ['$recoveries.return'] } // Cas où le champ n'existe pas
+              ]},
+              '$recoveries.amountNumber',
+              0,
+            ],
+          },
+        },
+      },
+    },
+  ];
+  
     
      pipeline2 = [
           {
@@ -1646,6 +1715,73 @@ exports.getReports = async (req, res) => {
         },
     },
     ]
+
+    pipeline4 = [
+      {
+        $match: {
+          $and: [
+            { 'recoveries.date': { $gte: start, $lte: end } },
+            { type },
+            { status: { $in: ['partial', 'recovery'] } },
+            { 'recoveries.author_id': req.body._id },
+          ],
+        },
+      },
+      {
+        $unwind: '$recoveries', // Décompose le tableau recoveries
+      },
+      {
+        $match: {
+          'recoveries.author_id': req.body._id,
+          'recoveries.date': { $gte: start, $lte: end },
+        },
+      },
+      {
+        $addFields: {
+          'recoveries.amountNumber': {
+            $cond: {
+              if: { $isNumber: '$recoveries.amount' },
+              then: '$recoveries.amount',
+              else: {
+                $convert: {
+                  input: '$recoveries.amount',
+                  to: 'double',
+                  onError: 0,
+                  onNull: 0,
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        $group: {
+          _id: null,
+          totalWithReturn: {
+            $sum: {
+              $cond: [
+                { $eq: ['$recoveries.return', true] },
+                '$recoveries.amountNumber',
+                0,
+              ],
+            },
+          },
+          totalWithoutReturn: {
+            $sum: {
+              $cond: [
+                { $or: [
+                  { $eq: ['$recoveries.return', false] },
+                  { $not: ['$recoveries.return'] } // Cas où le champ n'existe pas
+                ]},
+                '$recoveries.amountNumber',
+                0,
+              ],
+            },
+          },
+        },
+      },
+    ];
+    
       
         
     }
@@ -1678,13 +1814,15 @@ exports.getReports = async (req, res) => {
     const result = await Order.aggregate(pipeline);
     
     const result2 = await Order.aggregate(pipeline2);
+    const result4 = await Order.aggregate(pipeline4);
     
     console.log(result2);
    // console.log(result[0].recoveries);
     
      
     res.status(200).json({orders: result, status: 0, startAt: result.length === 10 ? parseInt(req.body.startAt) + 10 : null, 
-                         amount: result2.length > 0 ? result2[0].totalAmount: 0, cash: cashh});
+                         amount: result2.length > 0 ? result2[0].totalAmount: 0, cash: cashh, 
+                         amount1: result4.length > 0 ? result4[0].totalWithoutReturn: 0 , amount2 : result4.length > 0 ? result4[0].totalWithReturn: 0 });
     
     
   }catch(e){
