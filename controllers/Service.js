@@ -14,3 +14,9 @@ exports.getServiceStatus = (req, res) => {
         res.status(505).json({err})
     })
 }
+
+exports.testService = (req, res) => {
+
+    console.log(req.body);
+
+}
