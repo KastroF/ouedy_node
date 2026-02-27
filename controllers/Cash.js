@@ -3,7 +3,7 @@ const Order = require("../models/Order");
 
 exports.addCash = (req, res) => {
   
-    console.log(req.body); 
+    console.log("on est obligé de changer", req.body); 
   
     Order.findOne({_id: req.body._id}).then((order) => {
       
