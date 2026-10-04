@@ -12,6 +12,8 @@ const orderSchema = mongoose.Schema({
     type: {type: String}, 
     date: {type: Date}, 
     status: {type: String}, 
+    sendingAt: {type: Date}, 
+    ussdResponse: {type: String}, 
     read: {type: Boolean}, 
     phone: {type: String}, 
     message: {type: String},   

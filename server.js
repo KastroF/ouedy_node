@@ -1,6 +1,6 @@
 const http = require('http');
 const app = require('./app');
-const { Server } = require("socket.io");
+const realtime = require("./realtime");
 
 const normalizePort = val => {
   const port = parseInt(val, 10);
@@ -38,21 +38,7 @@ const errorHandler = error => {
 
 const server = http.createServer(app);
 
-const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
-})
-
-io.on("connection", (socket) => {
-  console.log("Un client est connecté est :", socket.id);
-
-  // Tu peux écouter ici des événements si besoin
-  socket.on("disconnect", () => {
-    console.log("Client déconnecté :", socket.id);
-  });
-});
+const io = realtime.init(server);
 
 server.on('error', errorHandler);
 server.on('listening', () => {

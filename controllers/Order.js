@@ -5,6 +5,11 @@ const Deletedorder = require("../models/Deletedorderr");
 const Cash = require("../models/Cash")
 const mongoose = require('mongoose');
 const ObjectId = mongoose.Types.ObjectId;
+const { notifyOrder, notifyOrders } = require("../realtime");
+
+// Une commande "sending" a été réservée par le téléphone de l'agrégateur : l'USSD est (ou a été) lancé.
+// On ne la redonne jamais à la boucle d'envoi, sinon l'agent peut recevoir le montant deux fois.
+const ORDER_EXPIRATION_MINUTES = 10;
 
 
 exports.validerDepot = async (req, res) => {
@@ -31,6 +36,7 @@ exports.validerDepot = async (req, res) => {
     if (existingOrder) {
       existingOrder.read = true;
       await existingOrder.save();
+      notifyOrder(existingOrder);
 
       return res.status(200).json({
         message: 'Commande mise à jour (read=true)',
@@ -389,9 +395,10 @@ exports.addAgentOrder = async (req, res) => {
     });
         
         
-        await order.save(); 
+        await order.save();
+        notifyOrder(order);
         res.status(201).json({status: 0});
-        
+
       }catch(err){
         
         console.log(err); 
@@ -423,7 +430,8 @@ exports.addOrder = async (req, res) => {
   
   
     order.save().then(() => {
-     
+
+      notifyOrder(order);
       res.status(201).json({status: 0});
         
     }, (err) => {
@@ -484,15 +492,23 @@ console.log("on teste l'envoi", req.body);
   
   
     Order.findOne({amount, read: false, type: req.body.type, phone: req.body.phone}).sort({date: -1}).limit(1).then((order) => {
-      
+
       console.log("je vois", order);
-      
+
       if(order){
-        
-        
-          
-        Order.updateOne({_id: order._id}, {$set: {read: true}}).then(() => {
-          
+
+        // Le SMS opérateur prouve que l'envoi a eu lieu : une commande restée "sending"
+        // (confirmation updateorderr perdue) devient bien une dette de l'agent.
+        const update = {read: true};
+
+        if(order.status === "sending" || order.status === "failed"){
+
+            update.status = "initial";
+        }
+
+        Order.updateOne({_id: order._id}, {$set: update}).then(() => {
+
+          notifyOrder({...order.toObject(), ...update});
           res.status(200).json({status: 0});
             
         }, (err) => {
@@ -595,6 +611,7 @@ exports.launchOrder = async (req, res) => {
 
     const lastOrder = await Order.findOne({
       agent_id: req.auth.userId,
+      status: { $ne: "failed" },
       type: service.type,
       phone: service.phone,
       amount: parseInt(amount),
@@ -624,6 +641,7 @@ exports.launchOrder = async (req, res) => {
     });
 
     await newOrder.save();
+    notifyOrder(newOrder);
     return res.status(201).json({ status: 0 });
 
   } catch (err) {
@@ -918,6 +936,15 @@ exports.getOrders = async (req, res) => {
       }
     ])
     
+    // Montant exact que "recoveryall" va recouvrer (AM et Moov uniquement), renvoyé tel quel lors de la validation.
+    let recoverable = null;
+
+    if(req.body._id){
+
+      const recoverableOrders = await Order.find({agent_id: req.body._id, status: {$in: ["initial", "partial"]}, type: {$in: ["am", "mm"]}});
+      recoverable = recoverableOrders.reduce((sum, order) => sum + (order.status === "initial" ? order.amount : order.rest), 0);
+    }
+
     let totals3 = [];
     
     if(req.body._id){
@@ -1121,7 +1148,7 @@ exports.getOrders = async (req, res) => {
 
 
     res.status(200).json({status: 0, orders: resultat, startAt: resultat.length === 10 ? parseInt(req.body.startAt) + 
-                             10 : null, amount: totalAmount + totalRest, amount2:  totalAmount2 + totalRest2, amount3: totalReturn1 +  totalReturn2, final}); 
+                             10 : null, amount: totalAmount + totalRest, amount2:  totalAmount2 + totalRest2, amount3: totalReturn1 +  totalReturn2, recoverable, final}); 
     
     
 }catch(e){
@@ -1134,9 +1161,6 @@ exports.getOrders = async (req, res) => {
 
 exports.recoveryAll = async (req, res) => {
   
-    //const 
-  
-  
   try{
 
     const userrr = await User.findOne({_id: req.auth.userId})
@@ -1145,7 +1169,15 @@ exports.recoveryAll = async (req, res) => {
     
     const orders = await Order.find({$and: [{$or: [{status: "initial"}, {status: "partial"}]}, {$or: [{type: "am"}, {type: "mm"}]}, 
                                            {agent_id: req.body._id}] }); 
-    
+
+    const total = orders.reduce((sum, order) => sum + (order.status === "initial" ? order.amount : order.rest), 0);
+
+    // Le recouvreur valide le montant qu'il a vu à l'écran. Si l'agent a commandé (ou remboursé)
+    // entre-temps, on refuse au lieu de recouvrer une somme qu'il n'a pas réellement encaissée.
+    if(req.body.expectedTotal !== undefined && parseInt(req.body.expectedTotal) !== total){
+
+        return res.status(200).json({status: 2, total, message: `La dette a changé : elle est maintenant de ${total.toLocaleString("fr-FR")} Fcfa. Vérifiez le montant avant de valider.`});
+    }
 
     for(let order of orders){
       
@@ -1156,6 +1188,7 @@ exports.recoveryAll = async (req, res) => {
         date: new Date()
     }
     
+        const previousStatus = order.status;
       
         if(order.recoveries){
           
@@ -1174,17 +1207,17 @@ exports.recoveryAll = async (req, res) => {
       
          order.status = 'recovery'
       
-      
-        await Order.updateOne({_id: order._id}, {$set: order} ); 
+        // Mise à jour conditionnelle : si un retour a modifié la commande entre-temps, on ne l'écrase pas.
+        await Order.updateOne({_id: order._id, status: previousStatus}, {$set: order} ); 
       
     }
     
-    
+    notifyOrders(orders);
     res.status(201).json({status: 0});
     
   }else{
 
-    res.status(201).json({status: 1});
+    res.status(201).json({status: 505});
 
   }
     
@@ -1246,7 +1279,8 @@ exports.toRecovery = (req, res) => {
       }
       
       Order.updateOne({_id: order._id}, {$set: order}).then(() => {
-        
+
+        notifyOrder(order);
         res.status(201).json({status: 0});
           
       }, (err) => {
@@ -1264,134 +1298,92 @@ exports.toRecovery = (req, res) => {
     })
 }
 
-exports.getPendingOrders = (req, res) => {
-  
-    Order.find({agg_id: req.auth.userId, status: "order"}).sort({date: -1}).limit(2).then(async (orders) => {
-      
-     // console.log(order); 
-      
-        if(orders[0]){
-          
-          let diffInMinutes = 0;
-          let diffInMinutes2 = 0;
-          let diffInMilliseconds
-          
-      
-            const date1 = new Date(orders[0].date); 
-            const date2 = new Date(); 
-          
-            diffInMilliseconds = Math.abs(date2 - date1);
-            diffInMinutes = diffInMilliseconds / (1000 * 60);
-            
-            
-            if(orders[1]){
-              
-                          
-                const date3 = new Date(orders[1].date); 
-                let diffInMilliseconds2 = Math.abs(date1 - date3) ; 
-                diffInMinutes2 = diffInMilliseconds2 / (1000 * 60);
-              
-            }
-          
-          
-      if(orders[1]){
-            
-        if((diffInMinutes2 < 10) && (orders[0].amount == orders[1].amount && orders[0].type == orders[1].type && orders[0].agent_id == orders[1].agent_id)){
-            
-            await Order.deleteOne({_id: orders[1]._id});
-            res.status(201).json({status: 0})
-          
-          }else{
-            
-         if(diffInMinutes >= 10){
-            
-            await Order.deleteOne({_id: orders[0]._id});
-            res.status(201).json({status: 0})
-          
-          }else{
-            
-            /*  if(orders[0].amount == orders[1].amount && orders[0].type == orders[1].type && orders[0].agent_id == orders[1].agent_id
-                && 1){
-                
-                  
-              }else{
-                
-                
-              } */
-            
-              console.log("C'est trop bien ");
-              res.status(201).json({status: 0, order: orders[0]});
-              
-          }
-              
-          }
-            
-            
-          }else{
-            
-          if(diffInMinutes >= 10){
-            
-            await Order.deleteOne({_id: orders[0]._id});
-            res.status(201).json({status: 0})
-          
-          }else{
-            
-            /*  if(orders[0].amount == orders[1].amount && orders[0].type == orders[1].type && orders[0].agent_id == orders[1].agent_id
-                && 1){
-                
-                  
-              }else{
-                
-                
-              } */
-            
-              console.log("C'est trop bien ");
-              res.status(201).json({status: 0, order: orders[0]});
-              
-          }
-            
-              
-          }
-   
-          
-          
-          
+exports.getPendingOrders = async (req, res) => {
 
-        // Convertissez la différence en minutes
-         
-          
-        
+  try {
 
-      
-          
-        }else{
-          
-            res.status(200).json({status: 0});
+    const orders = await Order.find({agg_id: req.auth.userId, status: "order"}).sort({date: -1}).limit(2);
+
+    if(!orders[0]){
+
+        return res.status(200).json({status: 0});
+    }
+
+    const diffInMinutes = Math.abs(Date.now() - new Date(orders[0].date)) / (1000 * 60);
+
+    if(orders[1]){
+
+        const diffInMinutes2 = Math.abs(new Date(orders[0].date) - new Date(orders[1].date)) / (1000 * 60);
+
+        if((diffInMinutes2 < ORDER_EXPIRATION_MINUTES) && (orders[0].amount == orders[1].amount && orders[0].type == orders[1].type && orders[0].agent_id == orders[1].agent_id)){
+
+            await Order.deleteOne({_id: orders[1]._id, status: "order"});
+            return res.status(201).json({status: 0});
         }
-      
+    }
 
-          
-        
-        
-    }, (err) => {
-      
-        console.log(err); 
-        res.status(505).json({err})
-    })
-  
+    if(diffInMinutes >= ORDER_EXPIRATION_MINUTES){
+
+        await Order.deleteOne({_id: orders[0]._id, status: "order"});
+        return res.status(201).json({status: 0});
+    }
+
+    // Réservation atomique : seul l'appel qui fait passer la commande de "order" à "sending"
+    // la reçoit. Un second tick (ou une seconde boucle) qui arrive en même temps reçoit null.
+    const order = await Order.findOneAndUpdate(
+      {_id: orders[0]._id, status: "order"},
+      {$set: {status: "sending", sendingAt: new Date()}},
+      {new: true}
+    );
+
+    if(!order){
+
+        return res.status(201).json({status: 0});
+    }
+
+    notifyOrder(order);
+    res.status(201).json({status: 0, order});
+
+  }catch(err){
+
+      console.log(err); 
+      res.status(505).json({err})
+  }
 }
 
-exports.updateOrderr = (req, res) => {
-  
-    Order.updateOne({_id: req.body._id}, {$set: {status: "initial"}}).then(() => {
-      
-        res.status(200).json({status: 0})
-    
-    }, (err) => {
-      
-        console.log(err); 
-        res.status(505).json({err})
-    })
+exports.updateOrderr = async (req, res) => {
+
+  try {
+
+    let order;
+
+    if(req.body.failed){
+
+        // Non composé (pas de SIM, permission...) : la commande peut repartir dans la boucle d'envoi.
+        // Composé mais refusé par l'opérateur ("dialed") : "failed", jamais renvoyée automatiquement.
+        order = await Order.findOneAndUpdate(
+          {_id: req.body._id, status: "sending"},
+          {$set: {status: req.body.dialed ? "failed" : "order", ussdResponse: req.body.ussdResponse}},
+          {new: true}
+        );
+
+    }else{
+
+        order = await Order.findOneAndUpdate(
+          {_id: req.body._id, status: {$in: ["sending", "order"]}},
+          {$set: {status: "initial", ussdResponse: req.body.ussdResponse}},
+          {new: true}
+        );
+    }
+
+    notifyOrder(order);
+    res.status(200).json({status: 0})
+
+  }catch(err){
+
+      console.log(err); 
+      res.status(505).json({err})
+  }
 }
 
 
@@ -1856,7 +1848,8 @@ exports.deleteOrder = (req, res) => {
       deletedOrder.save().then(async () => {
         
         await Order.deleteOne({_id: order._id});
-        
+        notifyOrder(order);
+
         res.status(200).json({status: 0});
           
       }, (err) => {
@@ -3338,7 +3331,7 @@ exports.manageReturns2 = async (req, res) => {
     };
 
     const saveReturnOrder = async (usedOrders = [], message = "", rest = 0) => {
-      await Order.create({
+      const returnOrder = await Order.create({
         amount: parsedAmount,
         phone,
         rec_id: user?.rec_id ?? null,
@@ -3352,6 +3345,7 @@ exports.manageReturns2 = async (req, res) => {
         rest,
         message,
       });
+      notifyOrder(returnOrder);
     };
 
     if (!user) {
@@ -3455,6 +3449,7 @@ exports.manageReturns2 = async (req, res) => {
         try {
           await saveReturnOrder(list, formatMessage(list, handler.label), rest);
           await updateOrders(list, handler.updater);
+          notifyOrders(list);
           return res.status(201).json({ status: 0 });
         } catch (err) {
           if (err.code === 11000) {
