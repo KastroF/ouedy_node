@@ -3,7 +3,7 @@ const Sms = require("../models/Sms");
 const User = require("../models/User");
 const orderCtrl = require("./Order");
 const partnerCtrl = require("./Partner");
-const { notifyUser } = require("../realtime");
+const { notifyUser, notifyBalances } = require("../realtime");
 const {
     EnvoiAmDetails, EnvoiExpressDetails, extractAgentAmInfo, extractAmBalance, extractCurrentStock,
     extractElementsReceiveMm2, extractEnvoiMmDatas, extractEtopUpInfo, extractMainAccountBalance,
@@ -140,6 +140,12 @@ exports.ingest = async (req, res) => {
     try {
 
         const user = await User.findOne({_id: req.auth.userId});
+
+        // Les soldes et les envois ne viennent que des SIM du téléphone d'envoi automatique de l'agrégateur
+        // (et des points de vente pour leurs propres opérations). Un SMS reçu par un recouvreur ou par un autre
+        // téléphone de l'agrégateur est seulement archivé : sa SIM n'a rien à voir avec le stock.
+        const canProcess = !!user && (user.status === "pos" || (user.status === "agg" && req.body.dispatcher === true));
+
         const messages = Array.isArray(req.body.messages) ? req.body.messages : [];
         const accepted = [];
 
@@ -177,6 +183,13 @@ exports.ingest = async (req, res) => {
                 throw err;
             }
 
+            if(!canProcess){
+
+                await Sms.updateOne({_id: sms._id}, {$set: {error: "ignoré : téléphone qui n'est pas en envoi automatique"}});
+                accepted.push(message.id);
+                continue;
+            }
+
             try {
 
                 const actions = await processSms(user, message.from, message.body);
@@ -191,8 +204,14 @@ exports.ingest = async (req, res) => {
             accepted.push(message.id);
         }
 
-        if(accepted.length > 0){
-            notifyUser(req.auth.userId, "user:changed");
+        if(accepted.length > 0 && canProcess){
+
+            // Les recouvreurs de l'agrégateur voient ses soldes : on les prévient aussi.
+            if(user.status === "agg"){
+                await notifyBalances(req.auth.userId);
+            }else{
+                notifyUser(req.auth.userId, "user:changed");
+            }
         }
 
         res.status(200).json({status: 0, accepted});

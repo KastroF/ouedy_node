@@ -5,11 +5,36 @@ const Deletedorder = require("../models/Deletedorderr");
 const Cash = require("../models/Cash")
 const mongoose = require('mongoose');
 const ObjectId = mongoose.Types.ObjectId;
-const { notifyOrder, notifyOrders } = require("../realtime");
+const { notifyOrder, notifyOrders, notifyBalances } = require("../realtime");
 
 // Une commande "sending" a été réservée par le téléphone de l'agrégateur : l'USSD est (ou a été) lancé.
 // On ne la redonne jamais à la boucle d'envoi, sinon l'agent peut recevoir le montant deux fois.
 const ORDER_EXPIRATION_MINUTES = 10;
+
+const BALANCE_FIELDS = { am: "amBalance", mm: "mmBalance", flash: "flashBalance", express: "expressBalance" };
+const SERVICE_TYPES = { "Airtel Money": "am", "Moov Money": "mm", "Flash Airtel": "flash", "Express": "express" };
+
+// Ce que l'envoi retire réellement du stock de l'agrégateur : Flash et Express ajoutent la commission (mêmes taux que les codes USSD).
+const stockCost = (type, amount) => {
+  const value = parseInt(amount) || 0;
+  if (type === "flash") return value * 1.05;
+  if (type === "express") return value * 1.055;
+  return value;
+};
+
+// Montant déjà engagé sur le stock de l'agrégateur par des commandes pas encore confirmées.
+const reservedStock = async (aggId, type, statuses, excludeId) => {
+  const filter = { agg_id: aggId, type, status: { $in: statuses } };
+  if (excludeId) filter._id = { $ne: excludeId };
+  const orders = await Order.find(filter, { amount: 1, type: 1 });
+  return orders.reduce((sum, o) => sum + stockCost(o.type, o.amount), 0);
+};
+
+const availableStock = async (agg, type, statuses, excludeId) => {
+  const balance = agg ? agg[BALANCE_FIELDS[type]] : undefined;
+  if (typeof balance !== "number") return null;
+  return balance - await reservedStock(agg._id.toString(), type, statuses, excludeId);
+};
 
 
 exports.validerDepot = async (req, res) => {
@@ -547,16 +572,11 @@ exports.launchOrder = async (req, res) => {
       });
     }
 
-    const serviceBalances = {
-      "Airtel Money": agg.amBalance,
-      "Moov Money": agg.mmBalance,
-      "Flash Airtel": agg.flashBalance
-    };
+    // Solde réellement disponible = solde connu - commandes en attente d'envoi ou en cours d'envoi.
+    const orderType = SERVICE_TYPES[currentServicee];
+    const available = orderType ? await availableStock(agg, orderType, ["order", "sending"]) : null;
 
-    if (
-      serviceBalances[currentServicee] !== undefined &&
-      serviceBalances[currentServicee] < amount
-    ) {
+    if (available !== null && stockCost(orderType, amount) > available) {
       return res.status(200).json({
         status: 1,
         message: "Le solde de votre agrégateur est insuffisant, contactez-le"
@@ -567,7 +587,7 @@ exports.launchOrder = async (req, res) => {
       {
         $match: {
           agent_id: req.auth.userId,
-          status: { $in: ["partial", "initial"] }
+          status: { $in: ["partial", "initial", "order", "sending"] }
         }
       },
       {
@@ -575,7 +595,7 @@ exports.launchOrder = async (req, res) => {
           _id: null,
           totalAmount: {
             $sum: {
-              $cond: [{ $eq: ["$status", "initial"] }, "$amount", 0]
+              $cond: [{ $in: ["$status", ["initial", "order", "sending"]] }, "$amount", 0]
             }
           },
           totalRest: {
@@ -1298,40 +1318,70 @@ exports.toRecovery = (req, res) => {
     })
 }
 
+// Marque une commande comme non envoyée : elle reste visible (orange, supprimable) mais n'est jamais comptée.
+const markNotSent = async (order, reason) => {
+  const updated = await Order.findOneAndUpdate(
+    {_id: order._id, status: "order"},
+    {$set: {status: "failed", ussdResponse: reason}},
+    {new: true}
+  );
+  notifyOrder(updated);
+  return updated;
+};
+
 exports.getPendingOrders = async (req, res) => {
 
   try {
 
-    const orders = await Order.find({agg_id: req.auth.userId, status: "order"}).sort({date: -1}).limit(2);
+    const aggId = req.auth.userId;
+    const expirationLimit = new Date(Date.now() - ORDER_EXPIRATION_MINUTES * 60 * 1000);
 
-    if(!orders[0]){
+    // 1. Commandes trop anciennes (téléphone d'envoi éteint, app fermée...) : jamais envoyées en rafale plus tard.
+    const staleOrders = await Order.find({agg_id: aggId, status: "order", date: {$lt: expirationLimit}});
+
+    for(const stale of staleOrders){
+        await markNotSent(stale, `Expirée : non envoyée dans les ${ORDER_EXPIRATION_MINUTES} minutes`);
+    }
+
+    // 2. La plus ancienne commande en attente d'abord (ordre d'arrivée).
+    const candidate = await Order.findOne({agg_id: aggId, status: "order"}).sort({date: 1});
+
+    if(!candidate){
 
         return res.status(200).json({status: 0});
     }
 
-    const diffInMinutes = Math.abs(Date.now() - new Date(orders[0].date)) / (1000 * 60);
+    // 3. Même agent, même service, même montant déjà envoyé (ou en cours) à moins de 10 minutes : doublon.
+    const windowMs = ORDER_EXPIRATION_MINUTES * 60 * 1000;
+    const duplicate = await Order.findOne({
+      _id: {$ne: candidate._id},
+      agent_id: candidate.agent_id,
+      type: candidate.type,
+      amount: candidate.amount,
+      status: {$in: ["sending", "initial", "partial", "recovery"]},
+      date: {$gte: new Date(new Date(candidate.date).getTime() - windowMs), $lte: new Date(new Date(candidate.date).getTime() + windowMs)}
+    });
 
-    if(orders[1]){
+    if(duplicate){
 
-        const diffInMinutes2 = Math.abs(new Date(orders[0].date) - new Date(orders[1].date)) / (1000 * 60);
-
-        if((diffInMinutes2 < ORDER_EXPIRATION_MINUTES) && (orders[0].amount == orders[1].amount && orders[0].type == orders[1].type && orders[0].agent_id == orders[1].agent_id)){
-
-            await Order.deleteOne({_id: orders[1]._id, status: "order"});
-            return res.status(201).json({status: 0});
-        }
-    }
-
-    if(diffInMinutes >= ORDER_EXPIRATION_MINUTES){
-
-        await Order.deleteOne({_id: orders[0]._id, status: "order"});
+        await markNotSent(candidate, "Doublon : le même montant a déjà été envoyé à cet agent il y a moins de 10 minutes");
         return res.status(201).json({status: 0});
     }
 
-    // Réservation atomique : seul l'appel qui fait passer la commande de "order" à "sending"
+    // 4. Solde de l'agrégateur, moins les envois déjà en cours : on ne lance pas un USSD voué à l'échec.
+    const agg = await User.findById(aggId);
+    const available = await availableStock(agg, candidate.type, ["sending"], candidate._id);
+
+    if(available !== null && stockCost(candidate.type, candidate.amount) > available){
+
+        await markNotSent(candidate, `Solde insuffisant : ${Math.max(0, Math.floor(available)).toLocaleString("fr-FR")} F disponibles`);
+        return res.status(201).json({status: 0});
+    }
+
+    // 5. Réservation atomique : seul l'appel qui fait passer la commande de "order" à "sending"
     // la reçoit. Un second tick (ou une seconde boucle) qui arrive en même temps reçoit null.
     const order = await Order.findOneAndUpdate(
-      {_id: orders[0]._id, status: "order"},
+      {_id: candidate._id, status: "order"},
       {$set: {status: "sending", sendingAt: new Date()}},
       {new: true}
     );
@@ -1374,6 +1424,15 @@ exports.updateOrderr = async (req, res) => {
           {$set: {status: "initial", ussdResponse: req.body.ussdResponse}},
           {new: true}
         );
+
+        // L'opérateur a accepté : on retire tout de suite le montant du stock de l'agrégateur,
+        // sans attendre le SMS de solde, pour que les commandes suivantes voient un solde juste.
+        if(order && order.agg_id && BALANCE_FIELDS[order.type]){
+
+            const field = BALANCE_FIELDS[order.type];
+            await User.updateOne({_id: order.agg_id, [field]: {$type: "number"}}, {$inc: {[field]: -Math.round(stockCost(order.type, order.amount))}});
+            notifyBalances(order.agg_id).catch(err => console.log(err));
+        }
     }
 
     notifyOrder(order);

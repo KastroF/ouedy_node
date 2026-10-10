@@ -2,6 +2,23 @@ const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt"); 
 
+const BALANCE_FIELDS = ["amBalance", "mmBalance", "flashBalance", "expressBalance"];
+
+// Un recouvreur n'a pas de stock : il voit les soldes de son agrégateur (ceux du téléphone d'envoi automatique),
+// jamais ceux de la SIM de son propre téléphone.
+const withAggBalances = async (user) => {
+
+  if(!user || user.status !== "rec" || !user.agg_id) return user;
+
+  const agg = await User.findOne({_id: user.agg_id}, BALANCE_FIELDS.join(" "));
+
+  BALANCE_FIELDS.forEach(field => {
+    user[field] = agg && typeof agg[field] === "number" ? agg[field] : undefined;
+  });
+
+  return user;
+};
+
 
 exports.login = (req, res) => {
   
@@ -63,6 +80,10 @@ exports.login = (req, res) => {
                 user.pos = result[0].pos.length > 0 ? result[0].pos[0].totalPos : 0; 
                 user.recouvreurs = result[0].recouvreurs.length > 0 ? result[0].recouvreurs[0].totalRecs : 0; 
                   
+               return withAggBalances(user);
+
+              }).then((user) => {
+
                res.status(201).json({status: 0, message: "Connexion effectuée avec succès", token: jwt.sign(
                 {userId: user._id}, 
                  "JxqKuulLNPCNfytiyqtsygygfRJYTjnju8u9yup8y89pjgkbhilaebAqetflqRfhhouhpb"
@@ -290,11 +311,13 @@ exports.getUser = (req, res) => {
       user.recouvreurs = result[0].recs.length > 0 ? result[0].recs[0].totalRecs : 0
       user.pos = result[0].pos.length > 0 ? result[0].pos[0].totalPos : 0
       
-    
+      return withAggBalances(user);
+
+    }).then((user) => {
       
         res.status(200).json({status: 0, user})
         
-    }, (err) => {
+    }).catch((err) => {
       
         res.status(505).json({err})
     })

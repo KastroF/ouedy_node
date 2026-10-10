@@ -66,3 +66,12 @@ exports.notifyUser = (userId, event) => {
     if (!io || !userId) return;
     io.to(`user:${userId}`).emit(event, { user_id: userId.toString() });
 };
+
+// Les soldes de l'agrégateur ont changé : tous ses téléphones et ses recouvreurs rechargent le profil.
+exports.notifyBalances = async (aggId) => {
+    if (!io || !aggId) return;
+    const User = require("./models/User");
+    const recs = await User.find({ agg_id: aggId.toString(), status: "rec" }, { _id: 1 });
+    exports.notifyUser(aggId, "user:changed");
+    recs.forEach(rec => exports.notifyUser(rec._id, "user:changed"));
+};
