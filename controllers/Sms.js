@@ -141,10 +141,10 @@ exports.ingest = async (req, res) => {
 
         const user = await User.findOne({_id: req.auth.userId});
 
-        // Les soldes et les envois ne viennent que des SIM du téléphone d'envoi automatique de l'agrégateur
-        // (et des points de vente pour leurs propres opérations). Un SMS reçu par un recouvreur ou par un autre
-        // téléphone de l'agrégateur est seulement archivé : sa SIM n'a rien à voir avec le stock.
-        const canProcess = !!user && (user.status === "pos" || (user.status === "agg" && req.body.dispatcher === true));
+        // Les SMS de l'agrégateur et des points de vente sont traités (confirmation d'envoi, soldes, retours).
+        // On ne filtre pas sur le drapeau "dispatcher" : les versions de l'app déjà installées ne l'envoient pas,
+        // et sans ces SMS les commandes ne passent jamais à "lue". Un SMS reçu par un recouvreur est seulement archivé.
+        const canProcess = !!user && (user.status === "pos" || user.status === "agg");
 
         const messages = Array.isArray(req.body.messages) ? req.body.messages : [];
         const accepted = [];

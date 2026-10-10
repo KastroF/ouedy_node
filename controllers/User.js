@@ -4,16 +4,13 @@ const bcrypt = require("bcrypt");
 
 const BALANCE_FIELDS = ["amBalance", "mmBalance", "flashBalance", "expressBalance"];
 
-// Un recouvreur n'a pas de stock : il voit les soldes de son agrégateur (ceux du téléphone d'envoi automatique),
-// jamais ceux de la SIM de son propre téléphone.
+// Un recouvreur n'a pas de stock et n'a pas à voir les soldes de l'agrégateur : on ne lui en renvoie aucun.
 const withAggBalances = async (user) => {
 
-  if(!user || user.status !== "rec" || !user.agg_id) return user;
-
-  const agg = await User.findOne({_id: user.agg_id}, BALANCE_FIELDS.join(" "));
+  if(!user || user.status !== "rec") return user;
 
   BALANCE_FIELDS.forEach(field => {
-    user[field] = agg && typeof agg[field] === "number" ? agg[field] : undefined;
+    user[field] = undefined;
   });
 
   return user;
