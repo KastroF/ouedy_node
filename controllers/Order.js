@@ -516,7 +516,15 @@ console.log("on teste l'envoi", req.body);
   
   
   
-    Order.findOne({amount, read: false, type: req.body.type, phone: req.body.phone}).sort({date: -1}).limit(1).then((order) => {
+  // Numéro ou montant illisible dans le SMS : { phone: undefined } est retiré par mongoose et la recherche
+  // confirmerait la dernière commande de ce montant, quel que soit l'agent.
+  if(typeof req.body.phone !== "string" || !/^\d{9}$/.test(req.body.phone) || !amount){
+
+      return res.status(200).json({status: 1, message: "Numéro ou montant illisible dans le SMS"});
+  }
+
+    // Un retour non lu (read: false) n'est pas un envoi : il ne doit pas être confirmé ici.
+    Order.findOne({amount, read: false, type: req.body.type, phone: req.body.phone, status: {$ne: "return"}}).sort({date: -1}).limit(1).then((order) => {
 
       console.log("je vois", order);
 
@@ -3362,12 +3370,20 @@ exports.manageReturns2 = async (req, res) => {
     const short = { [phoneKey]: phone, agg_id: userId };
     const balance = { [balanceKey]: newBalance };
 
+    // Sans référence, findOne({ trans_id: undefined }) renverrait n'importe quelle commande.
+    if (!trans_id) {
+      return res.status(200).json({ status: 1, message: "Référence de transaction absente du SMS" });
+    }
+
     const existingOrder = await Order.findOne({ trans_id });
     if (existingOrder) {
       return res.status(200).json({ status: 0, message: "Retour déjà enregistré" });
     }
 
-    const user = await User.findOne(short);
+    // Numéro illisible dans le SMS : on ne cherche pas d'agent, sinon { amPhone: null } (ou undefined, retiré par
+    // mongoose) renverrait le premier agent sans numéro ou le premier agent de l'agrégateur, qui recevrait le retour.
+    const validPhone = typeof phone === "string" && /^\d{9}$/.test(phone);
+    const user = validPhone && phoneKey ? await User.findOne(short) : null;
 
     const recoveryObj = amt => ({
       author_id: user?.agg_id,
